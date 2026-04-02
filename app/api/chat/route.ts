@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { buildModelTrialOrder } from "@/lib/gemini-models";
 import { COOKIE, verifySession } from "@/lib/session";
 
 const SYSTEM = `Bạn là trợ lý chat đơn giản, thân thiện, trả lời bằng tiếng Việt (trừ khi người dùng hỏi tiếng khác).
@@ -8,17 +9,6 @@ Nếu câu hỏi ngoài chủ đề, trả lời ngắn gọn hoặc nhắc lạ
 Không đưa ra hướng dẫn gây hại, vi phạm pháp luật, hay lộ thông tin nhạy cảm.`;
 
 type Msg = { role: "user" | "model"; text: string };
-
-/**
- * Thứ tự ưu tiên model. Không dùng tên đã deprecated/404 (vd. gemini-1.5-flash-8b).
- * Nếu GEMINI_MODEL (vd. 2.0-flash) bị 429 hoặc lỗi, sẽ thử các model còn lại.
- */
-function modelCandidates(): string[] {
-  const fromEnv = process.env.GEMINI_MODEL?.trim();
-  const defaults = ["gemini-1.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"];
-  const list = [fromEnv, ...defaults].filter((m): m is string => Boolean(m));
-  return [...new Set(list)];
-}
 
 function shouldTryNextModel(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -72,7 +62,14 @@ export async function POST(req: NextRequest) {
     parts: [{ text: m.text }],
   }));
 
-  const candidates = modelCandidates();
+  let candidates: string[];
+  try {
+    candidates = await buildModelTrialOrder(apiKey);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Không lấy được danh sách model.";
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
+
   let lastError: unknown;
 
   for (let i = 0; i < candidates.length; i++) {
