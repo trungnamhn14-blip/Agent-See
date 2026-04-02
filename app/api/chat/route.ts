@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { COOKIE, verifySession } from "@/lib/session";
 
@@ -9,7 +9,7 @@ Không đưa ra hướng dẫn gây hại, vi phạm pháp luật, hay lộ thô
 
 type Msg = { role: "user" | "model"; text: string };
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const authSecret = process.env.AUTH_SECRET;
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!authSecret || !apiKey) {
