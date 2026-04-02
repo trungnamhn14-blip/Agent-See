@@ -9,10 +9,13 @@ Không đưa ra hướng dẫn gây hại, vi phạm pháp luật, hay lộ thô
 
 type Msg = { role: "user" | "model"; text: string };
 
-/** Thứ tự ưu tiên model; nếu model đầu bị 429/quota (vd. 2.0-flash free tier = 0) thì thử tiếp. */
+/**
+ * Thứ tự ưu tiên model. Không dùng tên đã deprecated/404 (vd. gemini-1.5-flash-8b).
+ * Nếu GEMINI_MODEL (vd. 2.0-flash) bị 429 hoặc lỗi, sẽ thử các model còn lại.
+ */
 function modelCandidates(): string[] {
   const fromEnv = process.env.GEMINI_MODEL?.trim();
-  const defaults = ["gemini-1.5-flash", "gemini-1.5-flash-8b"];
+  const defaults = ["gemini-1.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"];
   const list = [fromEnv, ...defaults].filter((m): m is string => Boolean(m));
   return [...new Set(list)];
 }
