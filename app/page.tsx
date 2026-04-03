@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isTrangDenAgentseeClassToken, TRANG_DEN_AGENTSEE_CLASS_TOKEN } from "@/lib/agentseeTokens";
+import { isTrangDenPathStyleToken, TRANG_DEN_AGENTSEE_CLASS_TOKEN } from "@/lib/agentseeTokens";
 
 type Role = "user" | "model";
 
@@ -18,7 +18,7 @@ const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
 function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
   const t = raw.trim();
   if (!t) return { ok: false };
-  if (isTrangDenAgentseeClassToken(t)) return { ok: true, role: "admin" };
+  if (isTrangDenPathStyleToken(t)) return { ok: true, role: "admin" };
   try {
     const decoded = atob(t);
     const idx = decoded.indexOf(":");
@@ -266,9 +266,9 @@ export default function Page() {
         <form className="panel" onSubmit={handleLogin}>
           <label htmlFor="tok">Token lớp (hex) hoặc Base64 (role:agentsee)</label>
           <p className="sub" style={{ marginTop: "0.25rem", marginBottom: "0.5rem", fontSize: "0.85rem" }}>
-            Token lớp Trang Đen: <code style={{ wordBreak: "break-all" }}>{TRANG_DEN_AGENTSEE_CLASS_TOKEN}</code>
-            {" — "}
-            hoặc Base64:{" "}
+            Hex <strong>32 ký tự</strong> (copy từ URL bài Trang Đen, đoạn giữa <code>/bai-tap/…/</code> và{" "}
+            <code>/tuan-…</code>) — ví dụ <code style={{ wordBreak: "break-all" }}>{TRANG_DEN_AGENTSEE_CLASS_TOKEN}</code>
+            . Hoặc Base64 <code>role:agentsee</code>:{" "}
             <code style={{ wordBreak: "break-all" }}>YWRtaW46YWdlbnRzZWU=</code> /{" "}
             <code style={{ wordBreak: "break-all" }}>bWVtYmVyOmFnZW50c2Vl</code> /{" "}
             <code style={{ wordBreak: "break-all" }}>Z3Vlc3Q6YWdlbnRzZWU=</code>
@@ -279,7 +279,7 @@ export default function Page() {
             autoComplete="off"
             value={roleTokenInput}
             onChange={(e) => setRoleTokenInput(e.target.value)}
-            placeholder={`Hex lớp hoặc Base64, ví dụ ${TRANG_DEN_AGENTSEE_CLASS_TOKEN.slice(0, 8)}…`}
+            placeholder="Dán hex 32 ký tự từ URL bài của bạn, hoặc Base64"
           />
           {loginErr ? <p className="err">{loginErr}</p> : null}
           <button type="submit" disabled={busy}>

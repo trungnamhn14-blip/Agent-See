@@ -1,9 +1,10 @@
 /**
- * Token lớp Agent SEE do Trang Đen đặt trong URL bài tập (cùng giá trị dùng cho POST .../login).
- * App vẫn chấp nhận thêm Base64 role:agentsee như đề bài.
+ * Token lớp Agent SEE: đoạn 32 ký tự hex trong URL bài tập Trang Đen (mỗi học viên/bài có thể khác).
+ * Thêm Base64 role:agentsee như đề bài.
  */
 export const TRANG_DEN_AGENTSEE_CLASS_TOKEN = "ee1e8daa7069730fa9a25606f607f9cb";
 
-export function isTrangDenAgentseeClassToken(raw: string): boolean {
-  return raw.trim().toLowerCase() === TRANG_DEN_AGENTSEE_CLASS_TOKEN.toLowerCase();
+/** Hex 32 ký tự — cùng dạng mã trong path .../bai-tap/<id>/<hex>/tuan-... */
+export function isTrangDenPathStyleToken(raw: string): boolean {
+  return /^[a-f0-9]{32}$/i.test(raw.trim());
 }

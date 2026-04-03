@@ -1,4 +1,4 @@
-import { isTrangDenAgentseeClassToken } from "./agentseeTokens";
+import { isTrangDenPathStyleToken } from "./agentseeTokens";
 
 export type AgsRole = "admin" | "member" | "guest";
 
@@ -8,7 +8,7 @@ const VALID: readonly AgsRole[] = ["admin", "member", "guest"];
 export function parseRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
   const t = raw.trim();
   if (!t) return { ok: false };
-  if (isTrangDenAgentseeClassToken(t)) return { ok: true, role: "admin" };
+  if (isTrangDenPathStyleToken(t)) return { ok: true, role: "admin" };
   try {
     const decoded = Buffer.from(t, "base64").toString("utf8");
     const idx = decoded.indexOf(":");
