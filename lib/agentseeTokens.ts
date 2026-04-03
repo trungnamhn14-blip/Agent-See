@@ -8,3 +8,10 @@ export const TRANG_DEN_AGENTSEE_CLASS_TOKEN = "ee1e8daa7069730fa9a25606f607f9cb"
 export function isTrangDenPathStyleToken(raw: string): boolean {
   return /^[a-f0-9]{32}$/i.test(raw.trim());
 }
+
+/** Hex admin (chủ lớp) → admin; mọi hex 32 ký tự khác → member. */
+export function roleFromTrangDenHexToken(raw: string): "admin" | "member" | null {
+  const t = raw.trim();
+  if (!isTrangDenPathStyleToken(t)) return null;
+  return t.toLowerCase() === TRANG_DEN_AGENTSEE_CLASS_TOKEN.toLowerCase() ? "admin" : "member";
+}
