@@ -20,18 +20,7 @@ function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: 
   if (!t) return { ok: false };
   const hexRole = roleFromTrangDenHexToken(t);
   if (hexRole) return { ok: true, role: hexRole };
-  try {
-    const decoded = atob(t);
-    const idx = decoded.indexOf(":");
-    if (idx < 0) return { ok: false };
-    const role = decoded.slice(0, idx).trim().toLowerCase();
-    const secret = decoded.slice(idx + 1).trim();
-    if (!VALID_AGS.includes(role as AgsRole)) return { ok: false };
-    if (secret !== "agentsee") return { ok: false };
-    return { ok: true, role: role as AgsRole };
-  } catch {
-    return { ok: false };
-  }
+  return { ok: false };
 }
 
 async function establishSession(roleToken: string): Promise<{ ok: true; role: AgsRole } | { ok: false }> {
@@ -89,27 +78,14 @@ export default function Page() {
     let alive = true;
     (async () => {
       try {
-        const params = new URLSearchParams(window.location.search);
-        const q = params.get("token");
-        if (q) {
-          const p = parseClientRoleToken(q);
-          if (p.ok) {
-            const est = await establishSession(q);
-            if (alive && est.ok) {
-              finishLogin(est.role, q);
-              window.history.replaceState({}, "", window.location.pathname);
-            }
-          }
-        } else {
-          const r = await fetch("/api/session");
-          const d = await r.json().catch(() => ({}));
-          if (alive && d.loggedIn && typeof d.role === "string" && VALID_AGS.includes(d.role as AgsRole)) {
-            const role = d.role as AgsRole;
-            setAgsRole(role);
-            localStorage.setItem(LS_ROLE, role);
-            syncMemberFromLS(role);
-            setLoggedIn(true);
-          }
+        const r = await fetch("/api/session");
+        const d = await r.json().catch(() => ({}));
+        if (alive && d.loggedIn && typeof d.role === "string" && VALID_AGS.includes(d.role as AgsRole)) {
+          const role = d.role as AgsRole;
+          setAgsRole(role);
+          localStorage.setItem(LS_ROLE, role);
+          syncMemberFromLS(role);
+          setLoggedIn(true);
         }
       } finally {
         if (alive) setHydrating(false);
@@ -118,7 +94,7 @@ export default function Page() {
     return () => {
       alive = false;
     };
-  }, [finishLogin, syncMemberFromLS]);
+  }, [syncMemberFromLS]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -260,14 +236,13 @@ export default function Page() {
 
       {!loggedIn ? (
         <form className="panel" onSubmit={handleLogin}>
-          <label htmlFor="tok">Token</label>
+          <label htmlFor="tok">Login bằng token lớp Agent SEE</label>
           <input
             id="tok"
             type="text"
             autoComplete="off"
             value={roleTokenInput}
             onChange={(e) => setRoleTokenInput(e.target.value)}
-            placeholder="Nhập token"
           />
           {loginErr ? <p className="err">{loginErr}</p> : null}
           <button type="submit" disabled={busy}>

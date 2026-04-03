@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { COOKIE, signSession } from "@/lib/session";
 import { parseRoleToken } from "@/lib/roleToken";
 
-/** Xác thực giả: hex 32 ký tự (admin = hex chủ lớp, còn lại = member) hoặc Base64 role:agentsee. */
+/** Xác thực giả: chỉ token lớp hex 32 ký tự (admin = hex chủ lớp, còn lại = member). */
 export async function POST(req: Request) {
   const authSecret = process.env.AUTH_SECRET;
   if (!authSecret) {
