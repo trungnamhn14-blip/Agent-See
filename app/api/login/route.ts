@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { COOKIE, signSession } from "@/lib/session";
 import { parseRoleToken } from "@/lib/roleToken";
 
-/** Xác thực giả: chỉ kiểm tra token Base64 role:agentsee — không gọi API ngoài. */
+/** Xác thực giả: token lớp Trang Đen (hex cố định) hoặc Base64 role:agentsee — không gọi API ngoài. */
 export async function POST(req: Request) {
   const authSecret = process.env.AUTH_SECRET;
   if (!authSecret) {

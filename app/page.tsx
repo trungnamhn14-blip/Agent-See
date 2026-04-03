@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isTrangDenAgentseeClassToken, TRANG_DEN_AGENTSEE_CLASS_TOKEN } from "@/lib/agentseeTokens";
 
 type Role = "user" | "model";
 
@@ -17,6 +18,7 @@ const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
 function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
   const t = raw.trim();
   if (!t) return { ok: false };
+  if (isTrangDenAgentseeClassToken(t)) return { ok: true, role: "admin" };
   try {
     const decoded = atob(t);
     const idx = decoded.indexOf(":");
@@ -127,7 +129,9 @@ export default function Page() {
     }
     const p = parseClientRoleToken(tok);
     if (!p.ok) {
-      setLoginErr("Token không hợp lệ (định dạng role:agentsee, Base64).");
+      setLoginErr(
+        "Token không hợp lệ. Cần chuỗi Base64 khi decode (atob) ra đúng admin:agentsee, member:agentsee hoặc guest:agentsee — không phải mã trong URL API."
+      );
       return;
     }
     setBusy(true);
@@ -260,14 +264,22 @@ export default function Page() {
 
       {!loggedIn ? (
         <form className="panel" onSubmit={handleLogin}>
-          <label htmlFor="tok">Token (Base64 — role:agentsee)</label>
+          <label htmlFor="tok">Token lớp (hex) hoặc Base64 (role:agentsee)</label>
+          <p className="sub" style={{ marginTop: "0.25rem", marginBottom: "0.5rem", fontSize: "0.85rem" }}>
+            Token lớp Trang Đen: <code style={{ wordBreak: "break-all" }}>{TRANG_DEN_AGENTSEE_CLASS_TOKEN}</code>
+            {" — "}
+            hoặc Base64:{" "}
+            <code style={{ wordBreak: "break-all" }}>YWRtaW46YWdlbnRzZWU=</code> /{" "}
+            <code style={{ wordBreak: "break-all" }}>bWVtYmVyOmFnZW50c2Vl</code> /{" "}
+            <code style={{ wordBreak: "break-all" }}>Z3Vlc3Q6YWdlbnRzZWU=</code>
+          </p>
           <input
             id="tok"
             type="text"
             autoComplete="off"
             value={roleTokenInput}
             onChange={(e) => setRoleTokenInput(e.target.value)}
-            placeholder="Dán token admin / member / guest"
+            placeholder={`Hex lớp hoặc Base64, ví dụ ${TRANG_DEN_AGENTSEE_CLASS_TOKEN.slice(0, 8)}…`}
           />
           {loginErr ? <p className="err">{loginErr}</p> : null}
           <button type="submit" disabled={busy}>
