@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { COOKIE, signSession } from "@/lib/session";
+import { parseRoleToken } from "@/lib/roleToken";
 
 function eqPassword(input: string, expected: string): boolean {
   const a = Buffer.from(input, "utf8");
@@ -33,6 +34,14 @@ export async function POST(req: Request) {
       ? (body as { password: string }).password
       : "";
 
+  const roleToken =
+    typeof body === "object" &&
+    body !== null &&
+    "roleToken" in body &&
+    typeof (body as { roleToken: unknown }).roleToken === "string"
+      ? (body as { roleToken: string }).roleToken
+      : "";
+
   if (password.length < 4) {
     return NextResponse.json({ error: "Mật khẩu không hợp lệ." }, { status: 401 });
   }
@@ -41,7 +50,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Sai mật khẩu." }, { status: 401 });
   }
 
-  const token = signSession(authSecret);
+  const parsed = parseRoleToken(roleToken);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: "Token vai trò không hợp lệ." }, { status: 401 });
+  }
+
+  const token = signSession(authSecret, parsed.role);
   const res = NextResponse.json({ ok: true });
   const secure = process.env.NODE_ENV === "production";
   res.cookies.set(COOKIE, token, {

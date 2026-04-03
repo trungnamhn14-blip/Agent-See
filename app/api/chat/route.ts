@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { buildModelTrialOrder } from "@/lib/gemini-models";
-import { COOKIE, verifySession } from "@/lib/session";
+import { COOKIE, parseSession } from "@/lib/session";
 
 const SYSTEM = `Bạn là trợ lý chat đơn giản, thân thiện, trả lời bằng tiếng Việt (trừ khi người dùng hỏi tiếng khác).
 Chủ đề: trí tuệ nhân tạo (AI), AI Agent, workflow agent, công cụ, bảo mật API key, RAG, LLM, prompt, v.v.
@@ -28,15 +28,41 @@ export async function POST(req: NextRequest) {
   }
 
   const cookie = req.cookies.get(COOKIE)?.value;
-  if (!cookie || !verifySession(cookie, authSecret)) {
+  const sess = cookie ? parseSession(cookie, authSecret) : null;
+  if (!sess) {
     return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
   }
+
+  const agsRole = sess.role ?? "admin";
 
   let body: unknown;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Body không hợp lệ." }, { status: 400 });
+  }
+
+  if (agsRole === "guest") {
+    return NextResponse.json({ error: "Bạn không có quyền gửi tin nhắn" }, { status: 403 });
+  }
+
+  if (agsRole === "member") {
+    let n = 0;
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "member_sent_before" in body &&
+      typeof (body as { member_sent_before: unknown }).member_sent_before === "number" &&
+      Number.isFinite((body as { member_sent_before: number }).member_sent_before)
+    ) {
+      n = Math.max(0, Math.floor((body as { member_sent_before: number }).member_sent_before));
+    }
+    if (n >= 5) {
+      return NextResponse.json(
+        { error: "Member chỉ được gửi tối đa 5 tin nhắn mỗi phiên." },
+        { status: 429 }
+      );
+    }
   }
 
   const messages =
