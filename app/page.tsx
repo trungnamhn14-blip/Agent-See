@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { roleFromTrangDenHexToken } from "@/lib/agentseeTokens";
+import { trackAgentseeChat, trackAgentseeLogin, trackAgentseeVisit } from "@/lib/trangdenTrack";
 
 type Role = "user" | "model";
 
@@ -128,6 +129,10 @@ export default function Page() {
     };
   }, [syncMemberFromLS]);
 
+  useEffect(() => {
+    trackAgentseeVisit();
+  }, []);
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoginErr("");
@@ -150,6 +155,7 @@ export default function Page() {
       }
       finishLogin(est.role, tok);
       setRoleTokenInput("");
+      trackAgentseeLogin(est.role);
     } catch {
       setLoginErr("Lỗi mạng.");
     } finally {
@@ -189,6 +195,7 @@ export default function Page() {
     scrollDown();
 
     try {
+      trackAgentseeChat(agsRole);
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
