@@ -15,10 +15,10 @@ const LS_MEMBER = "agentsee_member_msg_count";
 
 const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
 
-function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
+/** Base64 role:agentsee — vai trò xác định được ngay trên client. */
+function parseClientBase64RoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
   const t = raw.trim();
   if (!t) return { ok: false };
-  if (isTrangDenPathStyleToken(t)) return { ok: true, role: "admin" };
   try {
     const decoded = atob(t);
     const idx = decoded.indexOf(":");
@@ -33,14 +33,24 @@ function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: 
   }
 }
 
-async function establishSession(roleToken: string): Promise<{ ok: true; role: AgsRole } | { ok: false }> {
+/** Hex 32 ký tự (Trang Đen) hoặc Base64 hợp lệ — vai trò hex do server gán sau khi kiểm tra. */
+function clientLoginInputAcceptable(raw: string): boolean {
+  const t = raw.trim();
+  return isTrangDenPathStyleToken(t) || parseClientBase64RoleToken(t).ok;
+}
+
+async function establishSession(
+  roleToken: string
+): Promise<{ ok: true; role: AgsRole } | { ok: false; error?: string }> {
   const r = await fetch("/api/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ roleToken: roleToken.trim() }),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok || !data.ok) return { ok: false };
+  if (!r.ok || !data.ok) {
+    return { ok: false, error: typeof data.error === "string" ? data.error : undefined };
+  }
   const role = data.role as AgsRole;
   if (!VALID_AGS.includes(role)) return { ok: false };
   return { ok: true, role };
@@ -91,8 +101,7 @@ export default function Page() {
         const params = new URLSearchParams(window.location.search);
         const q = params.get("token");
         if (q) {
-          const p = parseClientRoleToken(q);
-          if (p.ok) {
+          if (clientLoginInputAcceptable(q)) {
             const est = await establishSession(q);
             if (alive && est.ok) {
               finishLogin(est.role, q);
@@ -127,10 +136,9 @@ export default function Page() {
       setLoginErr("Vui lòng nhập token.");
       return;
     }
-    const p = parseClientRoleToken(tok);
-    if (!p.ok) {
+    if (!clientLoginInputAcceptable(tok)) {
       setLoginErr(
-        "Token không hợp lệ. Cần chuỗi Base64 khi decode (atob) ra đúng admin:agentsee, member:agentsee hoặc guest:agentsee — không phải mã trong URL API."
+        "Token không đúng định dạng: hex 32 ký tự (từ URL bài Trang Đen) hoặc Base64 của admin:agentsee / member:agentsee / guest:agentsee."
       );
       return;
     }
@@ -138,7 +146,7 @@ export default function Page() {
     try {
       const est = await establishSession(tok);
       if (!est.ok) {
-        setLoginErr("Đăng nhập thất bại.");
+        setLoginErr(est.error?.trim() || "Đăng nhập thất bại.");
         return;
       }
       finishLogin(est.role, tok);
@@ -266,9 +274,10 @@ export default function Page() {
         <form className="panel" onSubmit={handleLogin}>
           <label htmlFor="tok">Token lớp (hex) hoặc Base64 (role:agentsee)</label>
           <p className="sub" style={{ marginTop: "0.25rem", marginBottom: "0.5rem", fontSize: "0.85rem" }}>
-            Hex <strong>32 ký tự</strong> (copy từ URL bài Trang Đen, đoạn giữa <code>/bai-tap/…/</code> và{" "}
-            <code>/tuan-…</code>) — ví dụ <code style={{ wordBreak: "break-all" }}>{TRANG_DEN_AGENTSEE_CLASS_TOKEN}</code>
-            . Hoặc Base64 <code>role:agentsee</code>:{" "}
+            <strong>Hex 32 ký tự</strong> từ URL bài của bạn trên Trang Đen: token chủ bài (ví dụ{" "}
+            <code style={{ wordBreak: "break-all" }}>{TRANG_DEN_AGENTSEE_CLASS_TOKEN}</code>) → vai trò <strong>admin</strong>
+            ; hex học viên khác → <strong>member</strong> sau khi server xác thực với Trang Đen (
+            <code>TRANG_DEN_LOGIN_URL</code>). Hoặc Base64 <code>role:agentsee</code>:{" "}
             <code style={{ wordBreak: "break-all" }}>YWRtaW46YWdlbnRzZWU=</code> /{" "}
             <code style={{ wordBreak: "break-all" }}>bWVtYmVyOmFnZW50c2Vl</code> /{" "}
             <code style={{ wordBreak: "break-all" }}>Z3Vlc3Q6YWdlbnRzZWU=</code>
