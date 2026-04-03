@@ -29,14 +29,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const cookie = req.cookies.get(COOKIE)?.value;
-  const sess = cookie ? parseSession(cookie, authSecret) : null;
-  if (!sess) {
-    return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
-  }
-
-  const agsRole = sess.role ?? "admin";
-
   let body: unknown;
   try {
     body = await req.json();
@@ -44,24 +36,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Body không hợp lệ." }, { status: 400 });
   }
 
-  if (agsRole === "guest") {
-    return NextResponse.json({ error: "Bạn không có quyền gửi tin nhắn" }, { status: 403 });
-  }
+  const cookie = req.cookies.get(COOKIE)?.value;
+  const sess = cookie ? parseSession(cookie, authSecret) : null;
 
-  if (agsRole === "member") {
-    let n = 0;
+  if (!sess) {
+    let guestBefore = 0;
     if (
       typeof body === "object" &&
       body !== null &&
-      "member_sent_before" in body &&
-      typeof (body as { member_sent_before: unknown }).member_sent_before === "number" &&
-      Number.isFinite((body as { member_sent_before: number }).member_sent_before)
+      "guest_messages_sent_before" in body &&
+      typeof (body as { guest_messages_sent_before: unknown }).guest_messages_sent_before === "number" &&
+      Number.isFinite((body as { guest_messages_sent_before: number }).guest_messages_sent_before)
     ) {
-      n = Math.max(0, Math.floor((body as { member_sent_before: number }).member_sent_before));
+      guestBefore = Math.max(
+        0,
+        Math.floor((body as { guest_messages_sent_before: number }).guest_messages_sent_before)
+      );
     }
-    if (n >= 5) {
+    if (guestBefore >= 3) {
       return NextResponse.json(
-        { error: "Member chỉ được gửi tối đa 5 tin nhắn mỗi phiên." },
+        { error: "Hết lượt dùng thử. Đăng nhập để tiếp tục." },
         { status: 429 }
       );
     }

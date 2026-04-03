@@ -1,14 +1,19 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import type { AgsRole } from "@/lib/roleToken";
 
 const COOKIE = "ai_chat_sess";
 
 export { COOKIE };
 
-export type SessionPayload = { v: 1; t: number; role?: AgsRole };
+/** Session sau đăng nhập Trang Đen (6.6). */
+export type SessionPayload = { v: 1; t: number; display_name: string; is_admin: boolean };
 
-export function signSession(secret: string, role: AgsRole): string {
-  const payload = JSON.stringify({ v: 1 as const, t: Date.now(), role });
+export function signSession(secret: string, display_name: string, is_admin: boolean): string {
+  const payload = JSON.stringify({
+    v: 1 as const,
+    t: Date.now(),
+    display_name,
+    is_admin,
+  });
   const sig = createHmac("sha256", secret).update(payload).digest("hex");
   return Buffer.from(payload, "utf8").toString("base64url") + "." + sig;
 }
@@ -41,9 +46,9 @@ export function parseSession(token: string, secret: string): SessionPayload | nu
   if (typeof obj !== "object" || obj === null) return null;
   const o = obj as Record<string, unknown>;
   if (o.v !== 1 || typeof o.t !== "number") return null;
-  const role = o.role;
-  if (role !== undefined && role !== "admin" && role !== "member" && role !== "guest") return null;
-  return { v: 1, t: o.t, role: role as AgsRole | undefined };
+  if (typeof o.display_name !== "string" || !o.display_name.trim()) return null;
+  if (typeof o.is_admin !== "boolean") return null;
+  return { v: 1, t: o.t, display_name: o.display_name.trim(), is_admin: o.is_admin };
 }
 
 export function verifySession(token: string, secret: string): boolean {

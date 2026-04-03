@@ -1,23 +1,14 @@
 import { NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
 import { COOKIE, signSession } from "@/lib/session";
-import { parseRoleToken } from "@/lib/roleToken";
 
-function eqPassword(input: string, expected: string): boolean {
-  const a = Buffer.from(input, "utf8");
-  const b = Buffer.from(expected, "utf8");
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
+/** Endpoint đăng nhập lớp học (6.6) — KHÔNG tự chấm token; proxy tới Trang Đen. */
+const CLASS_LOGIN_URL =
+  "https://trangden.vn/agentsee/api/bai-tap/3147/ee1e8daa7069730fa9a25606f607f9cb/tuan-1/bai-6/cau-6/login";
 
 export async function POST(req: Request) {
-  const appPass = process.env.APP_PASSWORD;
   const authSecret = process.env.AUTH_SECRET;
-  if (!appPass || !authSecret) {
-    return NextResponse.json(
-      { error: "Thiếu cấu hình server (APP_PASSWORD / AUTH_SECRET)." },
-      { status: 500 }
-    );
+  if (!authSecret) {
+    return NextResponse.json({ error: "Thiếu AUTH_SECRET trên server." }, { status: 500 });
   }
 
   let body: unknown;
@@ -26,38 +17,58 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Body không hợp lệ." }, { status: 400 });
   }
-  const password =
+
+  const input_token =
     typeof body === "object" &&
     body !== null &&
-    "password" in body &&
-    typeof (body as { password: unknown }).password === "string"
-      ? (body as { password: string }).password
+    "input_token" in body &&
+    typeof (body as { input_token: unknown }).input_token === "string"
+      ? (body as { input_token: string }).input_token.trim()
       : "";
 
-  const roleToken =
-    typeof body === "object" &&
-    body !== null &&
-    "roleToken" in body &&
-    typeof (body as { roleToken: unknown }).roleToken === "string"
-      ? (body as { roleToken: string }).roleToken
-      : "";
-
-  const parsed = parseRoleToken(roleToken);
-  if (!parsed.ok) {
-    return NextResponse.json({ error: "Token vai trò không hợp lệ." }, { status: 401 });
+  if (!input_token) {
+    return NextResponse.json({ error: "Thiếu input_token." }, { status: 400 });
   }
 
-  if (password.length > 0) {
-    if (password.length < 4) {
-      return NextResponse.json({ error: "Mật khẩu không hợp lệ." }, { status: 401 });
-    }
-    if (!eqPassword(password, appPass)) {
-      return NextResponse.json({ error: "Sai mật khẩu." }, { status: 401 });
-    }
+  let upstream: Response;
+  try {
+    upstream = await fetch(CLASS_LOGIN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ input_token }),
+      cache: "no-store",
+    });
+  } catch {
+    return NextResponse.json({ error: "Không kết nối được máy chủ lớp học." }, { status: 502 });
   }
 
-  const token = signSession(authSecret, parsed.role);
-  const res = NextResponse.json({ ok: true });
+  const data = (await upstream.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    display_name?: string;
+    is_admin?: boolean;
+  };
+
+  if (!data.success) {
+    const err = typeof data.error === "string" && data.error.trim() ? data.error : "Đăng nhập thất bại.";
+    return NextResponse.json({ success: false, error: err }, { status: 401 });
+  }
+
+  const display_name =
+    typeof data.display_name === "string" && data.display_name.trim()
+      ? data.display_name.trim()
+      : "Thành viên";
+  const is_admin = !!data.is_admin;
+
+  const token = signSession(authSecret, display_name, is_admin);
+  const res = NextResponse.json({
+    success: true,
+    display_name,
+    is_admin,
+  });
   const secure = process.env.NODE_ENV === "production";
   res.cookies.set(COOKIE, token, {
     httpOnly: true,
