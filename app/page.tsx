@@ -51,18 +51,22 @@ async function postTrangDenLogin(inputToken: string): Promise<
   { ok: true; display_name: string; is_admin: boolean } | { ok: false; error: string }
 > {
   const url = getTrangDenBaiTapLoginUrl();
+  // Không dùng credentials: "include" — Trang Đen trả Access-Control-Allow-Origin: * ;
+  // trình duyệt sẽ chặn CORS nếu include + wildcard (thành "Lỗi mạng" trong catch).
   const td = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ input_token: inputToken }),
-    credentials: "include",
   });
   const data = (await td.json().catch(() => ({}))) as TrangDenLoginJson;
   if (!data.success || typeof data.display_name !== "string" || !data.display_name.trim()) {
-    return {
-      ok: false,
-      error: typeof data.error === "string" && data.error.trim() ? data.error : "Đăng nhập thất bại.",
-    };
+    const msg =
+      typeof data.error === "string" && data.error.trim()
+        ? data.error
+        : td.ok
+          ? "Đăng nhập thất bại."
+          : `Trang Đen trả lỗi (${td.status}).`;
+    return { ok: false, error: msg };
   }
   return { ok: true, display_name: data.display_name.trim(), is_admin: !!data.is_admin };
 }
@@ -171,8 +175,9 @@ export default function Page() {
       }
       finishLogin(role, td.display_name);
       setRoleTokenInput("");
-    } catch {
-      setLoginErr("Lỗi mạng.");
+    } catch (e) {
+      const msg = e instanceof TypeError ? "Không gọi được Trang Đen (mạng hoặc chặn CORS)." : "Lỗi mạng.";
+      setLoginErr(msg);
     } finally {
       setBusy(false);
     }
