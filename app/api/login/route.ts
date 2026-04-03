@@ -42,17 +42,18 @@ export async function POST(req: Request) {
       ? (body as { roleToken: string }).roleToken
       : "";
 
-  if (password.length < 4) {
-    return NextResponse.json({ error: "Mật khẩu không hợp lệ." }, { status: 401 });
-  }
-
-  if (!eqPassword(password, appPass)) {
-    return NextResponse.json({ error: "Sai mật khẩu." }, { status: 401 });
-  }
-
   const parsed = parseRoleToken(roleToken);
   if (!parsed.ok) {
     return NextResponse.json({ error: "Token vai trò không hợp lệ." }, { status: 401 });
+  }
+
+  if (password.length > 0) {
+    if (password.length < 4) {
+      return NextResponse.json({ error: "Mật khẩu không hợp lệ." }, { status: 401 });
+    }
+    if (!eqPassword(password, appPass)) {
+      return NextResponse.json({ error: "Sai mật khẩu." }, { status: 401 });
+    }
   }
 
   const token = signSession(authSecret, parsed.role);

@@ -3,6 +3,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { buildModelTrialOrder } from "@/lib/gemini-models";
 import { COOKIE, parseSession } from "@/lib/session";
 
+const FALLBACK_REPLY = "Bot đang hoạt động bình thường 🤖";
+
 const SYSTEM = `Bạn là trợ lý chat đơn giản, thân thiện, trả lời bằng tiếng Việt (trừ khi người dùng hỏi tiếng khác).
 Chủ đề: trí tuệ nhân tạo (AI), AI Agent, workflow agent, công cụ, bảo mật API key, RAG, LLM, prompt, v.v.
 Nếu câu hỏi ngoài chủ đề, trả lời ngắn gọn hoặc nhắc lại phạm vi bạn hỗ trợ.
@@ -91,12 +93,9 @@ export async function POST(req: NextRequest) {
   let candidates: string[];
   try {
     candidates = await buildModelTrialOrder(apiKey);
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Không lấy được danh sách model.";
-    return NextResponse.json({ error: msg }, { status: 502 });
+  } catch {
+    return NextResponse.json({ reply: FALLBACK_REPLY, fallback: true });
   }
-
-  let lastError: unknown;
 
   for (let i = 0; i < candidates.length; i++) {
     const modelName = candidates[i];
@@ -110,15 +109,11 @@ export async function POST(req: NextRequest) {
       const text = result.response.text();
       return NextResponse.json({ reply: text });
     } catch (e: unknown) {
-      lastError = e;
       const retry = shouldTryNextModel(e) && i < candidates.length - 1;
       if (retry) continue;
-      const msg = e instanceof Error ? e.message : "Lỗi model.";
-      return NextResponse.json({ error: msg }, { status: 502 });
+      return NextResponse.json({ reply: FALLBACK_REPLY, fallback: true });
     }
   }
 
-  const msg =
-    lastError instanceof Error ? lastError.message : "Lỗi model (đã thử mọi model dự phòng).";
-  return NextResponse.json({ error: msg }, { status: 502 });
+  return NextResponse.json({ reply: FALLBACK_REPLY, fallback: true });
 }

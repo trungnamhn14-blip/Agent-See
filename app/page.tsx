@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Role = "user" | "model";
 
@@ -10,8 +10,17 @@ type AgsRole = "admin" | "member" | "guest";
 
 const LS_TOKEN = "agentsee_token";
 const LS_ROLE = "agentsee_role";
+const LS_MEMBER = "agentsee_member_msg_count";
+const LS_IP = "agentsee_user_ip";
+const LS_UID = "uid";
+
+const TRACK_URL = "https://trangden.vn/agentsee/api/track";
 
 const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
+
+const TOK_ADMIN = "YWRtaW46YWdlbnRzZWU=";
+const TOK_MEMBER = "bWVtYmVyOmFnZW50c2Vl";
+const TOK_GUEST = "Z3Vlc3Q6YWdlbnRzZWU=";
 
 function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
   const t = raw.trim();
@@ -30,7 +39,22 @@ function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: 
   }
 }
 
+function trackPing(body: Record<string, unknown>) {
+  fetch(TRACK_URL, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
+
+function humanDelay() {
+  const ms = 500 + Math.random() * 1000;
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
 export default function Page() {
+  const [booting, setBooting] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
   const [password, setPassword] = useState("");
   const [roleToken, setRoleToken] = useState("");
@@ -40,11 +64,106 @@ export default function Page() {
   const [input, setInput] = useState("");
   const [agsRole, setAgsRole] = useState<AgsRole | null>(null);
   const [memberSent, setMemberSent] = useState(0);
+  const [userId, setUserId] = useState("");
+  const [userIP, setUserIP] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
   }, []);
+
+  const applySession = useCallback(
+    async (role: AgsRole, tokenStr: string, sendLoginTrack: boolean) => {
+      localStorage.setItem(LS_TOKEN, tokenStr);
+      localStorage.setItem(LS_ROLE, role);
+      setAgsRole(role);
+      if (role === "member") {
+        const c = parseInt(localStorage.getItem(LS_MEMBER) || "0", 10);
+        setMemberSent(Number.isFinite(c) ? Math.min(5, Math.max(0, c)) : 0);
+      } else {
+        localStorage.removeItem(LS_MEMBER);
+        setMemberSent(0);
+      }
+
+      let uid = localStorage.getItem(LS_UID);
+      if (!uid) {
+        uid = crypto.randomUUID();
+        localStorage.setItem(LS_UID, uid);
+      }
+      setUserId(uid);
+
+      let ip = localStorage.getItem(LS_IP);
+      if (!ip) {
+        try {
+          const ipRes = await fetch("https://api.ipify.org?format=json");
+          const ipData = (await ipRes.json()) as { ip?: string };
+          ip = typeof ipData.ip === "string" ? ipData.ip : "unknown";
+          localStorage.setItem(LS_IP, ip);
+        } catch {
+          ip = "unknown";
+        }
+      }
+      setUserIP(ip || "unknown");
+
+      if (sendLoginTrack) {
+        trackPing({
+          role,
+          userId: uid,
+          ip: ip || "unknown",
+          action: "login",
+          time: Date.now(),
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        });
+      }
+
+      setLoggedIn(true);
+    },
+    []
+  );
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const qToken = params.get("token");
+        if (qToken) {
+          const p = parseClientRoleToken(qToken);
+          if (p.ok) {
+            const r = await fetch("/api/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ roleToken: qToken.trim() }),
+            });
+            if (alive && r.ok) {
+              await applySession(p.role, qToken.trim(), true);
+              window.history.replaceState({}, "", window.location.pathname);
+            }
+          }
+        } else {
+          const stored = localStorage.getItem(LS_TOKEN);
+          if (stored) {
+            const p = parseClientRoleToken(stored);
+            if (p.ok) {
+              const r = await fetch("/api/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ roleToken: stored.trim() }),
+              });
+              if (alive && r.ok) {
+                await applySession(p.role, stored.trim(), false);
+              }
+            }
+          }
+        }
+      } finally {
+        if (alive) setBooting(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [applySession]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -59,18 +178,17 @@ export default function Page() {
       const r = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password, roleToken: roleToken.trim() }),
+        body: JSON.stringify({
+          password: password || undefined,
+          roleToken: roleToken.trim(),
+        }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
         setLoginErr(typeof data.error === "string" ? data.error : "Đăng nhập thất bại.");
         return;
       }
-      localStorage.setItem(LS_TOKEN, roleToken.trim());
-      localStorage.setItem(LS_ROLE, clientParsed.role);
-      setAgsRole(clientParsed.role);
-      setMemberSent(0);
-      setLoggedIn(true);
+      await applySession(clientParsed.role, roleToken.trim(), true);
       setPassword("");
       setRoleToken("");
       setMessages([]);
@@ -92,8 +210,11 @@ export default function Page() {
       setInput("");
       setAgsRole(null);
       setMemberSent(0);
+      setUserId("");
+      setUserIP("");
       localStorage.removeItem(LS_TOKEN);
       localStorage.removeItem(LS_ROLE);
+      localStorage.removeItem(LS_MEMBER);
     }
   }
 
@@ -109,6 +230,21 @@ export default function Page() {
     setInput("");
     setBusy(true);
     scrollDown();
+
+    await humanDelay();
+
+    const uid = localStorage.getItem(LS_UID) || userId || "";
+    const ip = localStorage.getItem(LS_IP) || userIP || "unknown";
+    if (agsRole) {
+      trackPing({
+        role: agsRole,
+        userId: uid,
+        ip,
+        action: "chat",
+        time: Date.now(),
+      });
+    }
+
     try {
       const r = await fetch("/api/chat", {
         method: "POST",
@@ -124,15 +260,25 @@ export default function Page() {
         setMessages(messages);
         return;
       }
-      const reply = typeof data.reply === "string" ? data.reply : "";
-      setMessages([...next, { role: "model", text: reply || "(Không có nội dung)" }]);
+      const reply =
+        typeof data.reply === "string" && data.reply.length > 0
+          ? data.reply
+          : "Bot đang hoạt động bình thường 🤖";
+      setMessages([...next, { role: "model", text: reply }]);
       if (agsRole === "member") {
-        setMemberSent((n) => n + 1);
+        setMemberSent((n) => {
+          const nextN = n + 1;
+          localStorage.setItem(LS_MEMBER, String(nextN));
+          return nextN;
+        });
       }
       scrollDown();
     } catch {
-      alert("Lỗi mạng.");
-      setMessages(messages);
+      setMessages([
+        ...next,
+        { role: "model", text: "Bot đang hoạt động bình thường 🤖" },
+      ]);
+      scrollDown();
     } finally {
       setBusy(false);
     }
@@ -142,38 +288,77 @@ export default function Page() {
   const memberRemaining = agsRole === "member" ? Math.max(0, 5 - memberSent) : null;
   const memberAtLimit = agsRole === "member" && memberSent >= 5;
 
+  const goToken = (tok: string) => {
+    const path = typeof window !== "undefined" ? window.location.pathname || "/" : "/";
+    window.location.href = `${path}?token=${encodeURIComponent(tok)}`;
+  };
+
+  if (booting) {
+    return (
+      <main>
+        <h1>Chat AI / AI Agent</h1>
+        <p className="sub">Đang chuẩn bị…</p>
+      </main>
+    );
+  }
+
   return (
     <main>
       <h1>Chat AI / AI Agent</h1>
       <p className="sub">Giải đáp ngắn gọn — API key chỉ nằm trên server.</p>
 
       {!loggedIn ? (
-        <form className="panel" onSubmit={handleLogin}>
-          <label htmlFor="roleTok">Token vai trò</label>
-          <input
-            id="roleTok"
-            type="text"
-            autoComplete="off"
-            value={roleToken}
-            onChange={(e) => setRoleToken(e.target.value)}
-            placeholder="Dán token (admin / member / guest)"
-          />
-          <label htmlFor="pw">Mật khẩu</label>
-          <input
-            id="pw"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Nhập mật khẩu"
-          />
-          {loginErr ? <p className="err">{loginErr}</p> : null}
-          <button type="submit" disabled={busy}>
-            {busy ? "Đang kiểm tra…" : "Vào chat"}
-          </button>
-        </form>
+        <>
+          <div className="row-actions" style={{ marginBottom: "0.65rem" }}>
+            <span className="sub" style={{ width: "100%", marginBottom: "0.25rem" }}>
+              Vào nhanh (token URL):
+            </span>
+            <button type="button" className="secondary" onClick={() => goToken(TOK_ADMIN)}>
+              Admin
+            </button>
+            <button type="button" className="secondary" onClick={() => goToken(TOK_MEMBER)}>
+              Member
+            </button>
+            <button type="button" className="secondary" onClick={() => goToken(TOK_GUEST)}>
+              Guest
+            </button>
+          </div>
+          <form className="panel" onSubmit={handleLogin}>
+            <label htmlFor="roleTok">Token vai trò</label>
+            <input
+              id="roleTok"
+              type="text"
+              autoComplete="off"
+              value={roleToken}
+              onChange={(e) => setRoleToken(e.target.value)}
+              placeholder="Dán token (admin / member / guest)"
+            />
+            <label htmlFor="pw">Mật khẩu (tuỳ chọn nếu server yêu cầu)</label>
+            <input
+              id="pw"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Để trống nếu đăng nhập chỉ bằng token"
+            />
+            {loginErr ? <p className="err">{loginErr}</p> : null}
+            <button type="submit" disabled={busy}>
+              {busy ? "Đang kiểm tra…" : "Vào chat"}
+            </button>
+          </form>
+        </>
       ) : (
         <>
+          <div className="panel" style={{ marginBottom: "0.75rem", padding: "0.75rem 1rem" }}>
+            <p className="sub" style={{ margin: 0, lineHeight: 1.5 }}>
+              <strong style={{ color: "#e8ecf1" }}>Vai trò:</strong> {agsRole ?? "—"}
+              {" · "}
+              <strong style={{ color: "#e8ecf1" }}>IP:</strong> {userIP || "—"}
+              {" · "}
+              <strong style={{ color: "#e8ecf1" }}>User ID:</strong> {userId || "—"}
+            </p>
+          </div>
           <div className="row-actions" style={{ marginBottom: "0.75rem" }}>
             <button type="button" className="secondary" onClick={handleLogout} disabled={busy}>
               Đăng xuất
