@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { roleFromTrangDenHexToken } from "@/lib/agentseeTokens";
-import { trackAgentseeChat, trackAgentseeLogin, trackAgentseeVisit } from "@/lib/trangdenTrack";
+import { getTrangDenBaiTapLoginUrl } from "@/lib/trangdenBaiTap";
 
 type Role = "user" | "model";
 
@@ -10,10 +9,9 @@ type Msg = { role: Role; text: string };
 
 type AgsRole = "admin" | "member" | "guest";
 
-const LS_TOKEN = "agentsee_token";
 const LS_ROLE = "agentsee_role";
+const LS_DISPLAY = "agentsee_display_name";
 const LS_MEMBER = "agentsee_member_msg_count";
-/** Chỉ khôi phục UI đăng nhập trong cùng tab sau F5; mở link/tab mới luôn thấy form login. */
 const SS_TAB_LOGIN = "agentsee_tab_login";
 
 const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
@@ -42,31 +40,48 @@ function clearTabLoginMark(): void {
   }
 }
 
-function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
-  const t = raw.trim();
-  if (!t) return { ok: false };
-  const hexRole = roleFromTrangDenHexToken(t);
-  if (hexRole) return { ok: true, role: hexRole };
-  return { ok: false };
+type TrangDenLoginJson = {
+  success?: boolean;
+  error?: string;
+  display_name?: string;
+  is_admin?: boolean;
+};
+
+async function postTrangDenLogin(inputToken: string): Promise<
+  { ok: true; display_name: string; is_admin: boolean } | { ok: false; error: string }
+> {
+  const url = getTrangDenBaiTapLoginUrl();
+  const td = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input_token: inputToken }),
+    credentials: "include",
+  });
+  const data = (await td.json().catch(() => ({}))) as TrangDenLoginJson;
+  if (!data.success || typeof data.display_name !== "string" || !data.display_name.trim()) {
+    return {
+      ok: false,
+      error: typeof data.error === "string" && data.error.trim() ? data.error : "Đăng nhập thất bại.",
+    };
+  }
+  return { ok: true, display_name: data.display_name.trim(), is_admin: !!data.is_admin };
 }
 
-async function establishSession(roleToken: string): Promise<{ ok: true; role: AgsRole } | { ok: false }> {
+async function postAppLogin(role: AgsRole, displayName: string): Promise<boolean> {
   const r = await fetch("/api/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ roleToken: roleToken.trim() }),
+    body: JSON.stringify({ role, displayName }),
   });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok || !data.ok) return { ok: false };
-  const role = data.role as AgsRole;
-  if (!VALID_AGS.includes(role)) return { ok: false };
-  return { ok: true, role };
+  const d = await r.json().catch(() => ({}));
+  return r.ok && d.ok === true;
 }
 
 export default function Page() {
   const [hydrating, setHydrating] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
   const [agsRole, setAgsRole] = useState<AgsRole | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [roleTokenInput, setRoleTokenInput] = useState("");
   const [loginErr, setLoginErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -90,10 +105,11 @@ export default function Page() {
   }, []);
 
   const finishLogin = useCallback(
-    (role: AgsRole, tokenStr: string) => {
-      localStorage.setItem(LS_TOKEN, tokenStr.trim());
+    (role: AgsRole, name: string) => {
       localStorage.setItem(LS_ROLE, role);
+      localStorage.setItem(LS_DISPLAY, name);
       setAgsRole(role);
+      setDisplayName(name);
       syncMemberFromLS(role);
       setLoggedIn(true);
       setMessages([]);
@@ -113,8 +129,11 @@ export default function Page() {
         const d = await r.json().catch(() => ({}));
         if (alive && d.loggedIn && typeof d.role === "string" && VALID_AGS.includes(d.role as AgsRole)) {
           const role = d.role as AgsRole;
+          const dn = typeof d.display_name === "string" ? d.display_name : "";
           setAgsRole(role);
+          setDisplayName(dn || null);
           localStorage.setItem(LS_ROLE, role);
+          if (dn) localStorage.setItem(LS_DISPLAY, dn);
           syncMemberFromLS(role);
           setLoggedIn(true);
         } else if (alive) {
@@ -129,10 +148,6 @@ export default function Page() {
     };
   }, [syncMemberFromLS]);
 
-  useEffect(() => {
-    trackAgentseeVisit();
-  }, []);
-
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoginErr("");
@@ -141,21 +156,21 @@ export default function Page() {
       setLoginErr("Vui lòng nhập token.");
       return;
     }
-    const p = parseClientRoleToken(tok);
-    if (!p.ok) {
-      setLoginErr("Token không hợp lệ.");
-      return;
-    }
     setBusy(true);
     try {
-      const est = await establishSession(tok);
-      if (!est.ok) {
-        setLoginErr("Đăng nhập thất bại.");
+      const td = await postTrangDenLogin(tok);
+      if (!td.ok) {
+        setLoginErr(td.error);
         return;
       }
-      finishLogin(est.role, tok);
+      const role: AgsRole = td.is_admin ? "admin" : "member";
+      const ok = await postAppLogin(role, td.display_name);
+      if (!ok) {
+        setLoginErr("Không tạo được phiên chat.");
+        return;
+      }
+      finishLogin(role, td.display_name);
       setRoleTokenInput("");
-      trackAgentseeLogin(est.role);
     } catch {
       setLoginErr("Lỗi mạng.");
     } finally {
@@ -172,11 +187,12 @@ export default function Page() {
       clearTabLoginMark();
       setLoggedIn(false);
       setAgsRole(null);
+      setDisplayName(null);
       setMemberSent(0);
       setMessages([]);
       setInput("");
-      localStorage.removeItem(LS_TOKEN);
       localStorage.removeItem(LS_ROLE);
+      localStorage.removeItem(LS_DISPLAY);
       localStorage.removeItem(LS_MEMBER);
     }
   }
@@ -195,7 +211,6 @@ export default function Page() {
     scrollDown();
 
     try {
-      trackAgentseeChat(agsRole);
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -261,7 +276,7 @@ export default function Page() {
         </div>
         {loggedIn && agsRole ? (
           <div className="app-header-right">
-            <span className="user-name">Vai trò: {agsRole}</span>
+            <span className="user-name">{displayName || agsRole}</span>
             {agsRole === "admin" ? (
               <span className="badge-admin" title="Admin">
                 ADMIN

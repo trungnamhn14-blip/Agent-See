@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { COOKIE, signSession } from "@/lib/session";
-import { parseRoleToken } from "@/lib/roleToken";
+import type { AgsRole } from "@/lib/roleToken";
 
-/** Xác thực giả: chỉ token lớp hex 32 ký tự (admin = hex chủ lớp, còn lại = member). */
+/**
+ * Sau khi browser đã POST Trang Đen .../login và nhận success,
+ * client gửi role + displayName để ký cookie chat (cùng logic bài mẫu static HTML).
+ */
 export async function POST(req: Request) {
   const authSecret = process.env.AUTH_SECRET;
   if (!authSecret) {
@@ -16,25 +19,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Body không hợp lệ." }, { status: 400 });
   }
 
-  const roleToken =
-    typeof body === "object" &&
-    body !== null &&
-    "roleToken" in body &&
-    typeof (body as { roleToken: unknown }).roleToken === "string"
-      ? (body as { roleToken: string }).roleToken.trim()
-      : "";
+  const o = body as { role?: unknown; displayName?: unknown };
+  const role = o.role === "admin" || o.role === "member" ? (o.role as AgsRole) : null;
+  const displayName = typeof o.displayName === "string" ? o.displayName.trim() : "";
 
-  if (!roleToken) {
-    return NextResponse.json({ error: "Thiếu roleToken." }, { status: 400 });
+  if (!role) {
+    return NextResponse.json({ error: "Thiếu hoặc sai role (admin | member)." }, { status: 400 });
+  }
+  if (!displayName) {
+    return NextResponse.json({ error: "Thiếu displayName." }, { status: 400 });
   }
 
-  const parsed = parseRoleToken(roleToken);
-  if (!parsed.ok) {
-    return NextResponse.json({ error: "Token không hợp lệ." }, { status: 401 });
-  }
-
-  const token = signSession(authSecret, parsed.role);
-  const res = NextResponse.json({ ok: true, role: parsed.role });
+  const token = signSession(authSecret, role, displayName);
+  const res = NextResponse.json({
+    ok: true,
+    role,
+    display_name: displayName,
+    is_admin: role === "admin",
+  });
   const secure = process.env.NODE_ENV === "production";
   res.cookies.set(COOKIE, token, {
     httpOnly: true,

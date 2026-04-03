@@ -5,10 +5,10 @@ const COOKIE = "ai_chat_sess";
 
 export { COOKIE };
 
-export type SessionPayload = { v: 1; t: number; role: AgsRole };
+export type SessionPayload = { v: 1 | 2; t: number; role: AgsRole; displayName: string };
 
-export function signSession(secret: string, role: AgsRole): string {
-  const payload = JSON.stringify({ v: 1 as const, t: Date.now(), role });
+export function signSession(secret: string, role: AgsRole, displayName: string): string {
+  const payload = JSON.stringify({ v: 2 as const, t: Date.now(), role, displayName });
   const sig = createHmac("sha256", secret).update(payload).digest("hex");
   return Buffer.from(payload, "utf8").toString("base64url") + "." + sig;
 }
@@ -40,10 +40,18 @@ export function parseSession(token: string, secret: string): SessionPayload | nu
   }
   if (typeof obj !== "object" || obj === null) return null;
   const o = obj as Record<string, unknown>;
-  if (o.v !== 1 || typeof o.t !== "number") return null;
+  if (typeof o.t !== "number") return null;
   const role = o.role;
   if (role !== "admin" && role !== "member" && role !== "guest") return null;
-  return { v: 1, t: o.t, role };
+  const t = o.t;
+  if (o.v === 1) {
+    return { v: 1, t, role, displayName: "" };
+  }
+  if (o.v === 2) {
+    const displayName = typeof o.displayName === "string" ? o.displayName : "";
+    return { v: 2, t, role, displayName };
+  }
+  return null;
 }
 
 export function verifySession(token: string, secret: string): boolean {

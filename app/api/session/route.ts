@@ -11,5 +11,10 @@ export async function GET(req: NextRequest) {
   if (!s) {
     return NextResponse.json({ loggedIn: false });
   }
-  return NextResponse.json({ loggedIn: true, role: s.role });
+  return NextResponse.json({
+    loggedIn: true,
+    role: s.role,
+    display_name: s.displayName || "",
+    is_admin: s.role === "admin",
+  });
 }
