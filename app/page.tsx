@@ -12,8 +12,34 @@ type AgsRole = "admin" | "member" | "guest";
 const LS_TOKEN = "agentsee_token";
 const LS_ROLE = "agentsee_role";
 const LS_MEMBER = "agentsee_member_msg_count";
+/** Chỉ khôi phục UI đăng nhập trong cùng tab sau F5; mở link/tab mới luôn thấy form login. */
+const SS_TAB_LOGIN = "agentsee_tab_login";
 
 const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
+
+function tabLoginMarked(): boolean {
+  try {
+    return sessionStorage.getItem(SS_TAB_LOGIN) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markTabLoggedIn(): void {
+  try {
+    sessionStorage.setItem(SS_TAB_LOGIN, "1");
+  } catch {
+    /* private mode */
+  }
+}
+
+function clearTabLoginMark(): void {
+  try {
+    sessionStorage.removeItem(SS_TAB_LOGIN);
+  } catch {
+    /* ignore */
+  }
+}
 
 function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
   const t = raw.trim();
@@ -70,6 +96,7 @@ export default function Page() {
       syncMemberFromLS(role);
       setLoggedIn(true);
       setMessages([]);
+      markTabLoggedIn();
     },
     [syncMemberFromLS]
   );
@@ -78,6 +105,9 @@ export default function Page() {
     let alive = true;
     (async () => {
       try {
+        if (!tabLoginMarked()) {
+          return;
+        }
         const r = await fetch("/api/session");
         const d = await r.json().catch(() => ({}));
         if (alive && d.loggedIn && typeof d.role === "string" && VALID_AGS.includes(d.role as AgsRole)) {
@@ -86,6 +116,8 @@ export default function Page() {
           localStorage.setItem(LS_ROLE, role);
           syncMemberFromLS(role);
           setLoggedIn(true);
+        } else if (alive) {
+          clearTabLoginMark();
         }
       } finally {
         if (alive) setHydrating(false);
@@ -131,6 +163,7 @@ export default function Page() {
       await fetch("/api/logout", { method: "POST" });
     } finally {
       setBusy(false);
+      clearTabLoginMark();
       setLoggedIn(false);
       setAgsRole(null);
       setMemberSent(0);
