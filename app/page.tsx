@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { roleFromTrangDenHexToken, TRANG_DEN_AGENTSEE_CLASS_TOKEN } from "@/lib/agentseeTokens";
+import { roleFromTrangDenHexToken } from "@/lib/agentseeTokens";
 
 type Role = "user" | "model";
 
@@ -130,9 +130,7 @@ export default function Page() {
     }
     const p = parseClientRoleToken(tok);
     if (!p.ok) {
-      setLoginErr(
-        "Token không hợp lệ. Cần chuỗi Base64 khi decode (atob) ra đúng admin:agentsee, member:agentsee hoặc guest:agentsee — không phải mã trong URL API."
-      );
+      setLoginErr("Token không hợp lệ.");
       return;
     }
     setBusy(true);
@@ -244,9 +242,6 @@ export default function Page() {
       <header className="app-header">
         <div className="app-header-left">
           <h1>Chat AI / AI Agent</h1>
-          <p className="sub" style={{ marginBottom: 0 }}>
-            Giải đáp ngắn gọn — API key chỉ nằm trên server.
-          </p>
         </div>
         {loggedIn && agsRole ? (
           <div className="app-header-right">
@@ -265,22 +260,14 @@ export default function Page() {
 
       {!loggedIn ? (
         <form className="panel" onSubmit={handleLogin}>
-          <label htmlFor="tok">Token lớp (hex) hoặc Base64 (role:agentsee)</label>
-          <p className="sub" style={{ marginTop: "0.25rem", marginBottom: "0.5rem", fontSize: "0.85rem" }}>
-            Hex <strong>32 ký tự</strong> từ URL (<code>/bai-tap/…/</code> … <code>/tuan-…</code>): chỉ đúng{" "}
-            <code style={{ wordBreak: "break-all" }}>{TRANG_DEN_AGENTSEE_CLASS_TOKEN}</code> → <strong>admin</strong>; mọi
-            hex khác → <strong>member</strong>. Hoặc Base64 <code>role:agentsee</code>:{" "}
-            <code style={{ wordBreak: "break-all" }}>YWRtaW46YWdlbnRzZWU=</code> /{" "}
-            <code style={{ wordBreak: "break-all" }}>bWVtYmVyOmFnZW50c2Vl</code> /{" "}
-            <code style={{ wordBreak: "break-all" }}>Z3Vlc3Q6YWdlbnRzZWU=</code>
-          </p>
+          <label htmlFor="tok">Token</label>
           <input
             id="tok"
             type="text"
             autoComplete="off"
             value={roleTokenInput}
             onChange={(e) => setRoleTokenInput(e.target.value)}
-            placeholder="Dán hex 32 ký tự từ URL bài của bạn, hoặc Base64"
+            placeholder="Nhập token"
           />
           {loginErr ? <p className="err">{loginErr}</p> : null}
           <button type="submit" disabled={busy}>
@@ -291,7 +278,7 @@ export default function Page() {
 
       {loggedIn && memberRemaining !== null ? (
         <p className="sub" style={{ marginBottom: "0.65rem" }}>
-          Còn {memberRemaining}/5 tin nhắn (member)
+          Còn {memberRemaining}/5 tin nhắn
         </p>
       ) : null}
 
@@ -306,9 +293,9 @@ export default function Page() {
           {messages.length === 0 ? (
             <div className="bubble bot">
               {!loggedIn
-                ? "Đăng nhập bằng token để chat (admin / member / guest)."
+                ? "Đăng nhập để bắt đầu chat."
                 : guestBlock
-                  ? "Bạn đang đăng nhập với vai trò guest — chỉ xem, không gửi tin."
+                  ? "Bạn chỉ có thể xem, không gửi tin nhắn."
                   : "Xin chào! Hỏi bất cứ điều gì về AI hay AI Agent — gửi tin nhắn bên dưới."}
             </div>
           ) : null}
@@ -329,7 +316,7 @@ export default function Page() {
               !loggedIn
                 ? "Đăng nhập trước khi gửi."
                 : guestBlock
-                  ? "Guest không gửi được tin."
+                  ? "Không thể gửi tin nhắn."
                   : "Ví dụ: AI Agent khác gì với chatbot thường?"
             }
             disabled={busy || !loggedIn || guestBlock || memberAtLimit}
