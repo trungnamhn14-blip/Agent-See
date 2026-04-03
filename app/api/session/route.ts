@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { COOKIE, parseSession } from "@/lib/session";
 
-/** Khôi phục UI sau F5 — đọc cookie session 6.6. */
 export async function GET(req: NextRequest) {
   const authSecret = process.env.AUTH_SECRET;
   if (!authSecret) {
@@ -12,9 +11,5 @@ export async function GET(req: NextRequest) {
   if (!s) {
     return NextResponse.json({ loggedIn: false });
   }
-  return NextResponse.json({
-    loggedIn: true,
-    display_name: s.display_name,
-    is_admin: s.is_admin,
-  });
+  return NextResponse.json({ loggedIn: true, role: s.role });
 }

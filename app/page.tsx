@@ -6,47 +6,107 @@ type Role = "user" | "model";
 
 type Msg = { role: Role; text: string };
 
-const LS_GUEST_SENT = "bai66_guest_user_sends";
-const LS_LOGIN_COUNT = "bai66_login_count";
+type AgsRole = "admin" | "member" | "guest";
+
+const LS_TOKEN = "agentsee_token";
+const LS_ROLE = "agentsee_role";
+const LS_MEMBER = "agentsee_member_msg_count";
+
+const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
+
+function parseClientRoleToken(raw: string): { ok: true; role: AgsRole } | { ok: false } {
+  const t = raw.trim();
+  if (!t) return { ok: false };
+  try {
+    const decoded = atob(t);
+    const idx = decoded.indexOf(":");
+    if (idx < 0) return { ok: false };
+    const role = decoded.slice(0, idx).trim().toLowerCase();
+    const secret = decoded.slice(idx + 1).trim();
+    if (!VALID_AGS.includes(role as AgsRole)) return { ok: false };
+    if (secret !== "agentsee") return { ok: false };
+    return { ok: true, role: role as AgsRole };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function establishSession(roleToken: string): Promise<{ ok: true; role: AgsRole } | { ok: false }> {
+  const r = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ roleToken: roleToken.trim() }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.ok) return { ok: false };
+  const role = data.role as AgsRole;
+  if (!VALID_AGS.includes(role)) return { ok: false };
+  return { ok: true, role };
+}
 
 export default function Page() {
   const [hydrating, setHydrating] = useState(true);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [displayName, setDisplayName] = useState("");
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [inputToken, setInputToken] = useState("");
+  const [agsRole, setAgsRole] = useState<AgsRole | null>(null);
+  const [roleTokenInput, setRoleTokenInput] = useState("");
   const [loginErr, setLoginErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
-  const [guestSent, setGuestSent] = useState(() => {
-    if (typeof window === "undefined") return 0;
-    const g = parseInt(localStorage.getItem(LS_GUEST_SENT) || "0", 10);
-    return Number.isFinite(g) ? Math.min(3, Math.max(0, g)) : 0;
-  });
-  const [loginCount, setLoginCount] = useState(() => {
-    if (typeof window === "undefined") return 0;
-    const lc = parseInt(localStorage.getItem(LS_LOGIN_COUNT) || "0", 10);
-    return Number.isFinite(lc) ? lc : 0;
-  });
+  const [memberSent, setMemberSent] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const loginPanelRef = useRef<HTMLDivElement>(null);
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
   }, []);
 
+  const syncMemberFromLS = useCallback((role: AgsRole) => {
+    if (role === "member") {
+      const c = parseInt(localStorage.getItem(LS_MEMBER) || "0", 10);
+      setMemberSent(Number.isFinite(c) ? Math.min(5, Math.max(0, c)) : 0);
+    } else {
+      localStorage.removeItem(LS_MEMBER);
+      setMemberSent(0);
+    }
+  }, []);
+
+  const finishLogin = useCallback(
+    (role: AgsRole, tokenStr: string) => {
+      localStorage.setItem(LS_TOKEN, tokenStr.trim());
+      localStorage.setItem(LS_ROLE, role);
+      setAgsRole(role);
+      syncMemberFromLS(role);
+      setLoggedIn(true);
+      setMessages([]);
+    },
+    [syncMemberFromLS]
+  );
+
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const r = await fetch("/api/session");
-        const d = await r.json().catch(() => ({}));
-        if (!alive) return;
-        if (d.loggedIn === true && typeof d.display_name === "string") {
-          setLoggedIn(true);
-          setDisplayName(d.display_name);
-          setIsAdmin(!!d.is_admin);
+        const params = new URLSearchParams(window.location.search);
+        const q = params.get("token");
+        if (q) {
+          const p = parseClientRoleToken(q);
+          if (p.ok) {
+            const est = await establishSession(q);
+            if (alive && est.ok) {
+              finishLogin(est.role, q);
+              window.history.replaceState({}, "", window.location.pathname);
+            }
+          }
+        } else {
+          const r = await fetch("/api/session");
+          const d = await r.json().catch(() => ({}));
+          if (alive && d.loggedIn && typeof d.role === "string" && VALID_AGS.includes(d.role as AgsRole)) {
+            const role = d.role as AgsRole;
+            setAgsRole(role);
+            localStorage.setItem(LS_ROLE, role);
+            syncMemberFromLS(role);
+            setLoggedIn(true);
+          }
         }
       } finally {
         if (alive) setHydrating(false);
@@ -55,39 +115,30 @@ export default function Page() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [finishLogin, syncMemberFromLS]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoginErr("");
-    const tok = inputToken.trim();
+    const tok = roleTokenInput.trim();
     if (!tok) {
       setLoginErr("Vui lòng nhập token.");
       return;
     }
+    const p = parseClientRoleToken(tok);
+    if (!p.ok) {
+      setLoginErr("Token không hợp lệ (định dạng role:agentsee, Base64).");
+      return;
+    }
     setBusy(true);
     try {
-      const r = await fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input_token: tok }),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.success) {
-        setLoginErr(typeof data.error === "string" ? data.error : "Đăng nhập thất bại.");
+      const est = await establishSession(tok);
+      if (!est.ok) {
+        setLoginErr("Đăng nhập thất bại.");
         return;
       }
-      const name = typeof data.display_name === "string" ? data.display_name : "Thành viên";
-      const admin = !!data.is_admin;
-      setDisplayName(name);
-      setIsAdmin(admin);
-      setLoggedIn(true);
-      setInputToken("");
-      setLoginCount((prev) => {
-        const nextLc = prev + 1;
-        localStorage.setItem(LS_LOGIN_COUNT, String(nextLc));
-        return nextLc;
-      });
+      finishLogin(est.role, tok);
+      setRoleTokenInput("");
     } catch {
       setLoginErr("Lỗi mạng.");
     } finally {
@@ -102,22 +153,22 @@ export default function Page() {
     } finally {
       setBusy(false);
       setLoggedIn(false);
-      setDisplayName("");
-      setIsAdmin(false);
+      setAgsRole(null);
+      setMemberSent(0);
       setMessages([]);
       setInput("");
+      localStorage.removeItem(LS_TOKEN);
+      localStorage.removeItem(LS_ROLE);
+      localStorage.removeItem(LS_MEMBER);
     }
-  }
-
-  function scrollToLogin() {
-    loginPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     const t = input.trim();
-    if (!t || busy) return;
-    if (!loggedIn && guestSent >= 3) return;
+    if (!t || busy || !loggedIn || !agsRole) return;
+    if (agsRole === "guest") return;
+    if (agsRole === "member" && memberSent >= 5) return;
 
     const next: Msg[] = [...messages, { role: "user", text: t }];
     setMessages(next);
@@ -131,13 +182,12 @@ export default function Page() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: next,
-          guest_messages_sent_before: loggedIn ? undefined : guestSent,
+          member_sent_before: agsRole === "member" ? memberSent : 0,
         }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const err = typeof data.error === "string" ? data.error : "Lỗi chat.";
-        alert(err);
+        alert(typeof data.error === "string" ? data.error : "Lỗi chat.");
         setMessages(messages);
         return;
       }
@@ -146,10 +196,12 @@ export default function Page() {
           ? data.reply
           : "Bot đang hoạt động bình thường 🤖";
       setMessages([...next, { role: "model", text: reply }]);
-      if (!loggedIn) {
-        const ns = guestSent + 1;
-        localStorage.setItem(LS_GUEST_SENT, String(ns));
-        setGuestSent(ns);
+      if (agsRole === "member") {
+        setMemberSent((n) => {
+          const nextN = n + 1;
+          localStorage.setItem(LS_MEMBER, String(nextN));
+          return nextN;
+        });
       }
       scrollDown();
     } catch {
@@ -157,10 +209,12 @@ export default function Page() {
         ...next,
         { role: "model", text: "Bot đang hoạt động bình thường 🤖" },
       ]);
-      if (!loggedIn) {
-        const ns = guestSent + 1;
-        localStorage.setItem(LS_GUEST_SENT, String(ns));
-        setGuestSent(ns);
+      if (agsRole === "member") {
+        setMemberSent((n) => {
+          const nextN = n + 1;
+          localStorage.setItem(LS_MEMBER, String(nextN));
+          return nextN;
+        });
       }
       scrollDown();
     } finally {
@@ -168,9 +222,9 @@ export default function Page() {
     }
   }
 
-  const trialExhausted = !loggedIn && guestSent >= 3;
-  const canSendGuest = loggedIn || guestSent < 3;
-  const canCompose = canSendGuest && !trialExhausted;
+  const guestBlock = agsRole === "guest";
+  const memberRemaining = agsRole === "member" ? Math.max(0, 5 - memberSent) : null;
+  const memberAtLimit = agsRole === "member" && memberSent >= 5;
 
   if (hydrating) {
     return (
@@ -189,11 +243,11 @@ export default function Page() {
             Giải đáp ngắn gọn — API key chỉ nằm trên server.
           </p>
         </div>
-        {loggedIn ? (
+        {loggedIn && agsRole ? (
           <div className="app-header-right">
-            <span className="user-name">{displayName}</span>
-            {isAdmin ? (
-              <span className="badge-admin" title="Quản trị viên">
+            <span className="user-name">Vai trò: {agsRole}</span>
+            {agsRole === "admin" ? (
+              <span className="badge-admin" title="Admin">
                 ADMIN
               </span>
             ) : null}
@@ -204,64 +258,45 @@ export default function Page() {
         ) : null}
       </header>
 
-      <div ref={loginPanelRef} className="panel">
-        <form onSubmit={handleLogin}>
-          <label htmlFor="classToken">Login bằng token lớp Agent SEE</label>
+      {!loggedIn ? (
+        <form className="panel" onSubmit={handleLogin}>
+          <label htmlFor="tok">Token (Base64 — role:agentsee)</label>
           <input
-            id="classToken"
+            id="tok"
             type="text"
             autoComplete="off"
-            value={inputToken}
-            onChange={(e) => setInputToken(e.target.value)}
-            placeholder="Dán token lớp học"
+            value={roleTokenInput}
+            onChange={(e) => setRoleTokenInput(e.target.value)}
+            placeholder="Dán token admin / member / guest"
           />
           {loginErr ? <p className="err">{loginErr}</p> : null}
           <button type="submit" disabled={busy}>
             {busy ? "Đang kiểm tra…" : "Đăng nhập"}
           </button>
         </form>
-      </div>
+      ) : null}
 
-      {!loggedIn && guestSent > 0 && guestSent < 3 ? (
-        <p className="sub" style={{ marginTop: "-0.5rem", marginBottom: "0.75rem" }}>
-          Dùng thử: đã gửi {guestSent}/3 tin (khách).
+      {loggedIn && memberRemaining !== null ? (
+        <p className="sub" style={{ marginBottom: "0.65rem" }}>
+          Còn {memberRemaining}/5 tin nhắn (member)
         </p>
       ) : null}
 
-      {trialExhausted ? (
-        <div className="trial-banner">
-          <p className="trial-text">Hết lượt dùng thử. Đăng nhập để tiếp tục.</p>
-          <button type="button" className="secondary" onClick={scrollToLogin}>
-            Đăng nhập
-          </button>
-        </div>
-      ) : null}
-
-      {isAdmin && loggedIn ? (
-        <div className="panel admin-tools">
-          <p className="sub" style={{ margin: "0 0 0.5rem" }}>
-            <strong style={{ color: "#e8ecf1" }}>Thống kê:</strong> tổng tin nhắn (phiên): {messages.length}{" "}
-            · số lượt đăng nhập: {loginCount}
-          </p>
-          <button
-            type="button"
-            className="secondary"
-            style={{ marginTop: 0 }}
-            onClick={() => setMessages([])}
-            disabled={busy}
-          >
-            Xoá lịch sử
-          </button>
-        </div>
+      {loggedIn && guestBlock ? (
+        <p className="err" style={{ marginBottom: "0.65rem" }}>
+          Bạn không có quyền gửi tin nhắn
+        </p>
       ) : null}
 
       <div className="panel chat-panel">
         <div className="messages">
           {messages.length === 0 ? (
             <div className="bubble bot">
-              {loggedIn
-                ? "Xin chào! Hỏi bất cứ điều gì về AI hay AI Agent — gửi tin nhắn bên dưới."
-                : "Bạn đang xem giao diện với tư cách khách — có thể gửi tối đa 3 tin dùng thử."}
+              {!loggedIn
+                ? "Đăng nhập bằng token để chat (admin / member / guest)."
+                : guestBlock
+                  ? "Bạn đang đăng nhập với vai trò guest — chỉ xem, không gửi tin."
+                  : "Xin chào! Hỏi bất cứ điều gì về AI hay AI Agent — gửi tin nhắn bên dưới."}
             </div>
           ) : null}
           {messages.map((m, i) => (
@@ -278,13 +313,18 @@ export default function Page() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
-              trialExhausted
-                ? "Hết lượt dùng thử — đăng nhập phía trên."
-                : "Ví dụ: AI Agent khác gì với chatbot thường?"
+              !loggedIn
+                ? "Đăng nhập trước khi gửi."
+                : guestBlock
+                  ? "Guest không gửi được tin."
+                  : "Ví dụ: AI Agent khác gì với chatbot thường?"
             }
-            disabled={busy || !canCompose}
+            disabled={busy || !loggedIn || guestBlock || memberAtLimit}
           />
-          <button type="submit" disabled={busy || !input.trim() || !canCompose}>
+          <button
+            type="submit"
+            disabled={busy || !loggedIn || !input.trim() || guestBlock || memberAtLimit}
+          >
             {busy ? "Đang trả lời…" : "Gửi"}
           </button>
         </form>
