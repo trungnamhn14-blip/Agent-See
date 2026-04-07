@@ -321,18 +321,39 @@ export default function Page() {
       setSubmitHomeworkMsg("Chưa suy ra được owner_token từ NEXT_PUBLIC_TRANGDEN_BAI_TAP_LOGIN_URL.");
       return;
     }
+    /** Trang Đen chấm OpenCV trên ảnh đúng 800×1002; avatar trong khung 300×300. */
+    const CAPTURE_W = 800;
+    const CAPTURE_H = 1002;
+
     setSubmitHomeworkBusy(true);
     try {
       const { default: html2canvas } = await import("html2canvas");
       const canvas = await html2canvas(root, {
-        scale: 2,
+        scale: 1,
+        width: CAPTURE_W,
+        height: CAPTURE_H,
         useCORS: true,
         allowTaint: false,
         logging: false,
         backgroundColor: "#0b0f14",
+        scrollX: 0,
+        scrollY: 0,
       });
+      let out = canvas;
+      if (canvas.width !== CAPTURE_W || canvas.height !== CAPTURE_H) {
+        const c2 = document.createElement("canvas");
+        c2.width = CAPTURE_W;
+        c2.height = CAPTURE_H;
+        const ctx = c2.getContext("2d");
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(canvas, 0, 0, CAPTURE_W, CAPTURE_H);
+          out = c2;
+        }
+      }
       const blob = await new Promise<Blob | null>((resolve) => {
-        canvas.toBlob((b) => resolve(b), "image/png");
+        out.toBlob((b) => resolve(b), "image/png");
       });
       if (!blob) {
         setSubmitHomeworkMsg("Không tạo được ảnh PNG.");
@@ -468,47 +489,63 @@ export default function Page() {
       ) : null}
 
       {homeworkLayout ? (
-        <div ref={captureRootRef} className="homework-capture-root">
-          <div className="homework-split">
-            <aside className="homework-sidebar" aria-label="Hồ sơ và nộp bài">
-              <div className="homework-avatar-wrap">
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="" width={300} height={300} crossOrigin="anonymous" />
-                ) : (
-                  <div className="homework-avatar-fallback" aria-hidden>
-                    {avatarInitial}
+        <>
+          {!avatarUrl ? (
+            <p className="sub homework-avatar-hint">
+              Để so khớp avatar với server, cần ảnh đại diện từ Trang Đen (API login trả{" "}
+              <code>avatar_url</code>). Nếu chỉ thấy chữ cái, bạn bè hãy đổi ảnh rõ hơn trên hệ thống rồi đăng nhập
+              lại.
+            </p>
+          ) : null}
+          <div className="homework-capture-viewport">
+            <div ref={captureRootRef} className="homework-capture-root">
+              <div className="homework-split">
+                <aside className="homework-sidebar" aria-label="Hồ sơ và nộp bài">
+                  <div className="homework-avatar-wrap">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt=""
+                        width={300}
+                        height={300}
+                        crossOrigin="anonymous"
+                        style={{ objectFit: "cover", objectPosition: "center center" }}
+                      />
+                    ) : (
+                      <div className="homework-avatar-fallback" aria-hidden>
+                        {avatarInitial}
+                      </div>
+                    )}
                   </div>
-                )}
+                  <p className="homework-name">{displayName || "—"}</p>
+                  <p className="homework-role">{roleLabel}</p>
+                  <button
+                    type="button"
+                    className="btn-submit-friend"
+                    onClick={() => void handleSubmitHomeworkForFriend()}
+                    disabled={submitHomeworkBusy || busy}
+                  >
+                    {submitHomeworkBusy ? "Đang gửi…" : "「Nộp bài hộ bạn」"}
+                  </button>
+                </aside>
+                <div className="homework-main-col">
+                  {memberRemaining !== null ? (
+                    <p className="sub homework-meta-line">
+                      Còn {memberRemaining}/5 tin nhắn
+                    </p>
+                  ) : null}
+                  {guestBlock ? (
+                    <p className="err homework-meta-line">Bạn không có quyền gửi tin nhắn</p>
+                  ) : null}
+                  {chatPanel}
+                </div>
               </div>
-              <p className="homework-name">{displayName || "—"}</p>
-              <p className="homework-role">{roleLabel}</p>
-              <button
-                type="button"
-                className="btn-submit-friend"
-                onClick={() => void handleSubmitHomeworkForFriend()}
-                disabled={submitHomeworkBusy || busy}
-              >
-                {submitHomeworkBusy ? "Đang gửi…" : "「Nộp bài hộ bạn」"}
-              </button>
-              {submitHomeworkMsg ? (
-                <p className="sub homework-submit-msg">{submitHomeworkMsg}</p>
-              ) : null}
-            </aside>
-            <div className="homework-main-col">
-              {memberRemaining !== null ? (
-                <p className="sub" style={{ marginBottom: "0.65rem" }}>
-                  Còn {memberRemaining}/5 tin nhắn
-                </p>
-              ) : null}
-              {guestBlock ? (
-                <p className="err" style={{ marginBottom: "0.65rem" }}>
-                  Bạn không có quyền gửi tin nhắn
-                </p>
-              ) : null}
-              {chatPanel}
             </div>
           </div>
-        </div>
+          {submitHomeworkMsg ? (
+            <p className="sub homework-submit-msg-outside">{submitHomeworkMsg}</p>
+          ) : null}
+        </>
       ) : (
         <>
           {loggedIn && memberRemaining !== null ? (

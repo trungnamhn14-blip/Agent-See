@@ -18,47 +18,79 @@ main {
   flex-direction: column;
 }
 main.layout-homework {
-  max-width: 1100px;
+  max-width: calc(800px + 2.5rem);
   width: 100%;
 }
+.homework-avatar-hint {
+  margin-bottom: 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.homework-avatar-hint code {
+  font-size: 0.78em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+}
+/* Vùng chụp cố định 800×1002 px (yêu cầu chấm OpenCV Trang Đen). */
+.homework-capture-viewport {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
 .homework-capture-root {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+  width: 800px;
+  height: 1002px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #0b0f14;
+  box-sizing: border-box;
 }
 .homework-split {
   display: flex;
-  gap: 1rem;
+  flex-direction: row;
+  gap: 0;
+  width: 800px;
+  height: 1002px;
   align-items: stretch;
-  flex: 1;
-  min-height: 0;
+  box-sizing: border-box;
 }
 .homework-sidebar {
   width: 400px;
+  height: 1002px;
   flex-shrink: 0;
+  box-sizing: border-box;
   background: #121822;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 1rem;
+  border-radius: 0;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
+/* Khung avatar đúng 300×300, vuông — khớp template server (crop giữa). */
 .homework-avatar-wrap {
   width: 300px;
   height: 300px;
-  border-radius: 12px;
+  min-width: 300px;
+  min-height: 300px;
+  max-width: 300px;
+  max-height: 300px;
+  border-radius: 0;
   overflow: hidden;
   background: #0b0f14;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 .homework-avatar-wrap img {
-  width: 100%;
-  height: 100%;
+  width: 300px;
+  height: 300px;
+  max-width: 300px;
+  max-height: 300px;
   object-fit: cover;
+  object-position: center center;
   display: block;
 }
 .homework-avatar-fallback {
@@ -74,47 +106,61 @@ main.layout-homework {
 }
 .homework-name {
   font-weight: 600;
-  margin: 0.75rem 0 0.25rem;
+  margin: 10px 0 4px;
   text-align: center;
   max-width: 100%;
   word-break: break-word;
+  font-size: 0.95rem;
 }
 .homework-role {
   color: #8b95a8;
-  font-size: 0.85rem;
-  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  margin: 0 0 10px;
 }
 button.btn-submit-friend {
-  margin-top: 0.25rem;
-  width: 100%;
-  max-width: 280px;
+  margin-top: 0;
+  width: 280px;
+  max-width: 100%;
   background: linear-gradient(135deg, #059669, #10b981);
 }
-.homework-submit-msg {
-  margin-top: 0.65rem;
-  text-align: center;
-  max-width: 100%;
+.homework-submit-msg-outside {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+.homework-meta-line {
+  margin-bottom: 0.45rem;
+  flex-shrink: 0;
 }
 .homework-main-col {
-  flex: 1;
-  min-width: 0;
+  width: 400px;
+  height: 1002px;
+  flex-shrink: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  padding: 8px 8px 8px 0;
+  overflow: hidden;
 }
-.layout-homework .chat-panel {
+.homework-main-col .chat-panel {
   flex: 1;
+  min-height: 0;
   margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.65rem;
 }
-.layout-homework .messages {
-  max-height: min(55vh, 480px);
+.homework-main-col .messages {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  margin-bottom: 0.5rem;
 }
-@media (max-width: 900px) {
-  .homework-split {
-    flex-direction: column;
-  }
-  .homework-sidebar {
-    width: 100%;
-  }
+.homework-main-col .chat-panel textarea {
+  min-height: 72px;
+}
+.homework-main-col .chat-panel button[type="submit"] {
+  margin-top: 0.45rem;
 }
 .app-header {
   display: flex;
