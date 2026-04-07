@@ -1,6 +1,9 @@
 /**
  * URL POST login của đề Trang Đen (browser gọi trực tiếp → hệ thống chấm thấy IP học viên).
- * Tuỳ chỉnh trên Vercel: NEXT_PUBLIC_TRANGDEN_BAI_TAP_LOGIN_URL
+ * Tuỳ chỉnh trên Vercel:
+ * - NEXT_PUBLIC_TRANGDEN_BAI_TAP_LOGIN_URL
+ * - NEXT_PUBLIC_TRANGDEN_CAU8_STATUS_URL | SUBMIT_URL (nếu không suy ra từ login)
+ * - NEXT_PUBLIC_TRANGDEN_LOP_HOC_ORIGIN (mặc định https://trangden.vn/agentsee/lop-hoc — ảnh *_compare_300.jpg)
  */
 export function getTrangDenBaiTapLoginUrl(): string {
   const u = process.env.NEXT_PUBLIC_TRANGDEN_BAI_TAP_LOGIN_URL;
@@ -26,4 +29,24 @@ export function getTrangDenCau8SubmitUrl(): string {
   const next = login.replace(/\/bai-6\/cau-6\/login\/?$/i, "/bai-6/cau-8/submit");
   if (next !== login) return next;
   return login.replace(/cau-6\/login\/?$/i, "cau-8/submit");
+}
+
+/** GET JSON có `visitor_avatar_url` = đúng file 300×300 server dùng so OpenCV (web lớp / lop-hoc). */
+export function getTrangDenCau8StatusUrl(): string {
+  const u = process.env.NEXT_PUBLIC_TRANGDEN_CAU8_STATUS_URL;
+  if (typeof u === "string" && u.trim().length > 0) return u.trim();
+  const login = getTrangDenBaiTapLoginUrl();
+  const next = login.replace(/\/bai-6\/cau-6\/login\/?$/i, "/bai-6/cau-8/status");
+  if (next !== login) return next;
+  return login.replace(/cau-6\/login\/?$/i, "cau-8/status");
+}
+
+/**
+ * Gốc web lớp học — path tương đối như `/api/avatars/..._compare_300.jpg` ghép vào đây.
+ * Mặc định giống app Flutter Agent SEE.
+ */
+export function getTrangDenLopHocOrigin(): string {
+  const u = process.env.NEXT_PUBLIC_TRANGDEN_LOP_HOC_ORIGIN;
+  if (typeof u === "string" && u.trim().length > 0) return u.replace(/\/$/, "");
+  return "https://trangden.vn/agentsee/lop-hoc";
 }

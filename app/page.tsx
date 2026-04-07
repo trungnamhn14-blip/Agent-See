@@ -105,6 +105,11 @@ export default function Page() {
   const [input, setInput] = useState("");
   const [memberSent, setMemberSent] = useState(0);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  /** Ảnh 300×300 đúng mẫu OpenCV: proxy /api/trangden-lop-image từ visitor_avatar_url (GET cau-8/status). */
+  const [lopCompareSrc, setLopCompareSrc] = useState<string | null>(null);
+  const [compareLoadState, setCompareLoadState] = useState<"idle" | "loading" | "ok" | "err">("idle");
+  const [compareErrMsg, setCompareErrMsg] = useState<string | null>(null);
+  const [compareVisitorName, setCompareVisitorName] = useState<string | null>(null);
   const [visitorToken, setVisitorToken] = useState<string | null>(null);
   const [submitHomeworkBusy, setSubmitHomeworkBusy] = useState(false);
   const [submitHomeworkMsg, setSubmitHomeworkMsg] = useState<string | null>(null);
@@ -186,6 +191,65 @@ export default function Page() {
     };
   }, [syncMemberFromLS]);
 
+  useEffect(() => {
+    if (hydrating) return;
+    if (!loggedIn || !agsRole || agsRole === "admin") {
+      setLopCompareSrc(null);
+      setCompareLoadState("idle");
+      setCompareErrMsg(null);
+      setCompareVisitorName(null);
+      return;
+    }
+    let cancelled = false;
+    setCompareLoadState("loading");
+    setCompareErrMsg(null);
+    (async () => {
+      try {
+        const r = await fetch("/api/trangden-cau8-status", { cache: "no-store" });
+        const d = (await r.json().catch(() => ({}))) as {
+          error?: string;
+          visitor_avatar_url?: string;
+          visitor_avatar_popup_url?: string;
+          visitor_name?: string;
+        };
+        if (cancelled) return;
+        if (!r.ok) {
+          setCompareLoadState("err");
+          setCompareErrMsg(
+            typeof d.error === "string" && d.error.trim() ? d.error.trim() : `Lỗi ${r.status}`
+          );
+          setLopCompareSrc(null);
+          return;
+        }
+        const rel =
+          typeof d.visitor_avatar_url === "string" && d.visitor_avatar_url.trim()
+            ? d.visitor_avatar_url.trim()
+            : typeof d.visitor_avatar_popup_url === "string" && d.visitor_avatar_popup_url.trim()
+              ? d.visitor_avatar_popup_url.trim()
+              : "";
+        if (!rel.startsWith("/")) {
+          setCompareLoadState("err");
+          setCompareErrMsg("Thiếu visitor_avatar_url (path /api/avatars/...) từ cau-8/status.");
+          setLopCompareSrc(null);
+          return;
+        }
+        setLopCompareSrc(`/api/trangden-lop-image?p=${encodeURIComponent(rel)}`);
+        setCompareLoadState("ok");
+        const vn = d.visitor_name;
+        setCompareVisitorName(typeof vn === "string" && vn.trim() ? vn.trim() : null);
+      } catch {
+        if (!cancelled) {
+          setCompareLoadState("err");
+          setCompareErrMsg("Không gọi được API mẫu avatar (cau-8/status).");
+          setLopCompareSrc(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loggedIn, agsRole, hydrating]);
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoginErr("");
@@ -241,6 +305,10 @@ export default function Page() {
       }
       setVisitorToken(null);
       setAvatarUrl(null);
+      setLopCompareSrc(null);
+      setCompareLoadState("idle");
+      setCompareErrMsg(null);
+      setCompareVisitorName(null);
       setSubmitHomeworkMsg(null);
     }
   }
@@ -321,6 +389,10 @@ export default function Page() {
       setSubmitHomeworkMsg("Chưa suy ra được owner_token từ NEXT_PUBLIC_TRANGDEN_BAI_TAP_LOGIN_URL.");
       return;
     }
+    if (!lopCompareSrc || compareLoadState !== "ok") {
+      setSubmitHomeworkMsg("Chưa tải xong ảnh mẫu 300×300 từ Trang Đen (cau-8/status) — không nộp được.");
+      return;
+    }
     /** Trang Đen chấm OpenCV trên ảnh đúng 800×1002; avatar trong khung 300×300. */
     const CAPTURE_W = 800;
     const CAPTURE_H = 1002;
@@ -397,6 +469,7 @@ export default function Page() {
   const homeworkLayout = !!(loggedIn && agsRole && agsRole !== "admin");
   const roleLabel = agsRole === "guest" ? "Guest" : agsRole === "member" ? "Member" : "";
   const avatarInitial = (displayName || "?").trim().slice(0, 1).toUpperCase() || "?";
+  const homeworkDisplayName = compareVisitorName ?? displayName ?? "—";
 
   if (hydrating) {
     return (
@@ -490,11 +563,16 @@ export default function Page() {
 
       {homeworkLayout ? (
         <>
-          {!avatarUrl ? (
+          {compareLoadState === "loading" ? (
+            <p className="sub homework-avatar-hint">Đang tải ảnh mẫu 300×300 từ Trang Đen (cau-8/status)…</p>
+          ) : null}
+          {compareLoadState === "err" && compareErrMsg ? (
+            <p className="err homework-avatar-hint">{compareErrMsg}</p>
+          ) : null}
+          {compareLoadState === "ok" ? (
             <p className="sub homework-avatar-hint">
-              Để so khớp avatar với server, cần ảnh đại diện từ Trang Đen (API login trả{" "}
-              <code>avatar_url</code>). Nếu chỉ thấy chữ cái, bạn bè hãy đổi ảnh rõ hơn trên hệ thống rồi đăng nhập
-              lại.
+              Khung trái hiển thị đúng file <code>*_compare_300.jpg</code> mà server dùng so OpenCV (cùng trên web lớp
+              học).
             </p>
           ) : null}
           <div className="homework-capture-viewport">
@@ -502,28 +580,27 @@ export default function Page() {
               <div className="homework-split">
                 <aside className="homework-sidebar" aria-label="Hồ sơ và nộp bài">
                   <div className="homework-avatar-wrap">
-                    {avatarUrl ? (
+                    {lopCompareSrc ? (
                       <img
-                        src={avatarUrl}
+                        src={lopCompareSrc}
                         alt=""
                         width={300}
                         height={300}
-                        crossOrigin="anonymous"
                         style={{ objectFit: "cover", objectPosition: "center center" }}
                       />
                     ) : (
                       <div className="homework-avatar-fallback" aria-hidden>
-                        {avatarInitial}
+                        {compareLoadState === "loading" ? "…" : avatarInitial}
                       </div>
                     )}
                   </div>
-                  <p className="homework-name">{displayName || "—"}</p>
+                  <p className="homework-name">{homeworkDisplayName}</p>
                   <p className="homework-role">{roleLabel}</p>
                   <button
                     type="button"
                     className="btn-submit-friend"
                     onClick={() => void handleSubmitHomeworkForFriend()}
-                    disabled={submitHomeworkBusy || busy}
+                    disabled={submitHomeworkBusy || busy || compareLoadState !== "ok" || !lopCompareSrc}
                   >
                     {submitHomeworkBusy ? "Đang gửi…" : "「Nộp bài hộ bạn」"}
                   </button>
