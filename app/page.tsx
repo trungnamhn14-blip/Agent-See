@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getTrangDenBaiTapLoginUrl } from "@/lib/trangdenBaiTap";
+import {
+  getTrangDenBaiTapLoginUrl,
+  getTrangDenCau8SubmitUrl,
+  getTrangDenOwnerTokenFromLoginUrl,
+} from "@/lib/trangdenBaiTap";
 
 type Role = "user" | "model";
 
@@ -13,6 +17,8 @@ const LS_ROLE = "agentsee_role";
 const LS_DISPLAY = "agentsee_display_name";
 const LS_MEMBER = "agentsee_member_msg_count";
 const SS_TAB_LOGIN = "agentsee_tab_login";
+const SS_VISITOR_TOKEN = "agentsee_visitor_token";
+const SS_AVATAR_URL = "agentsee_avatar_url";
 
 const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
 
@@ -45,10 +51,12 @@ type TrangDenLoginJson = {
   error?: string;
   display_name?: string;
   is_admin?: boolean;
+  avatar_url?: string;
 };
 
 async function postTrangDenLogin(inputToken: string): Promise<
-  { ok: true; display_name: string; is_admin: boolean } | { ok: false; error: string }
+  | { ok: true; display_name: string; is_admin: boolean; avatar_url?: string }
+  | { ok: false; error: string }
 > {
   const url = getTrangDenBaiTapLoginUrl();
   // Không dùng credentials: "include" — Trang Đen trả Access-Control-Allow-Origin: * ;
@@ -68,7 +76,11 @@ async function postTrangDenLogin(inputToken: string): Promise<
           : `Trang Đen trả lỗi (${td.status}).`;
     return { ok: false, error: msg };
   }
-  return { ok: true, display_name: data.display_name.trim(), is_admin: !!data.is_admin };
+  const av =
+    typeof data.avatar_url === "string" && data.avatar_url.trim().length > 0
+      ? data.avatar_url.trim()
+      : undefined;
+  return { ok: true, display_name: data.display_name.trim(), is_admin: !!data.is_admin, avatar_url: av };
 }
 
 async function postAppLogin(role: AgsRole, displayName: string): Promise<boolean> {
@@ -92,7 +104,12 @@ export default function Page() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [memberSent, setMemberSent] = useState(0);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [visitorToken, setVisitorToken] = useState<string | null>(null);
+  const [submitHomeworkBusy, setSubmitHomeworkBusy] = useState(false);
+  const [submitHomeworkMsg, setSubmitHomeworkMsg] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const captureRootRef = useRef<HTMLDivElement>(null);
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
@@ -109,11 +126,20 @@ export default function Page() {
   }, []);
 
   const finishLogin = useCallback(
-    (role: AgsRole, name: string) => {
+    (role: AgsRole, name: string, vTok: string, av?: string | null) => {
       localStorage.setItem(LS_ROLE, role);
       localStorage.setItem(LS_DISPLAY, name);
+      try {
+        sessionStorage.setItem(SS_VISITOR_TOKEN, vTok);
+        if (av) sessionStorage.setItem(SS_AVATAR_URL, av);
+        else sessionStorage.removeItem(SS_AVATAR_URL);
+      } catch {
+        /* private mode */
+      }
       setAgsRole(role);
       setDisplayName(name);
+      setVisitorToken(vTok);
+      setAvatarUrl(av ?? null);
       syncMemberFromLS(role);
       setLoggedIn(true);
       setMessages([]);
@@ -138,6 +164,14 @@ export default function Page() {
           setDisplayName(dn || null);
           localStorage.setItem(LS_ROLE, role);
           if (dn) localStorage.setItem(LS_DISPLAY, dn);
+          try {
+            const vt = sessionStorage.getItem(SS_VISITOR_TOKEN);
+            const au = sessionStorage.getItem(SS_AVATAR_URL);
+            if (vt) setVisitorToken(vt);
+            setAvatarUrl(au || null);
+          } catch {
+            /* ignore */
+          }
           syncMemberFromLS(role);
           setLoggedIn(true);
         } else if (alive) {
@@ -173,7 +207,7 @@ export default function Page() {
         setLoginErr("Không tạo được phiên chat.");
         return;
       }
-      finishLogin(role, td.display_name);
+      finishLogin(role, td.display_name, tok, td.avatar_url ?? null);
       setRoleTokenInput("");
     } catch (e) {
       const msg = e instanceof TypeError ? "Không gọi được Trang Đen (mạng hoặc chặn CORS)." : "Lỗi mạng.";
@@ -199,6 +233,15 @@ export default function Page() {
       localStorage.removeItem(LS_ROLE);
       localStorage.removeItem(LS_DISPLAY);
       localStorage.removeItem(LS_MEMBER);
+      try {
+        sessionStorage.removeItem(SS_VISITOR_TOKEN);
+        sessionStorage.removeItem(SS_AVATAR_URL);
+      } catch {
+        /* ignore */
+      }
+      setVisitorToken(null);
+      setAvatarUrl(null);
+      setSubmitHomeworkMsg(null);
     }
   }
 
@@ -261,9 +304,78 @@ export default function Page() {
     }
   }
 
+  async function handleSubmitHomeworkForFriend() {
+    setSubmitHomeworkMsg(null);
+    const root = captureRootRef.current;
+    const vt = visitorToken?.trim();
+    const owner = getTrangDenOwnerTokenFromLoginUrl();
+    if (!root) {
+      setSubmitHomeworkMsg("Không tìm thấy vùng chụp.");
+      return;
+    }
+    if (!vt) {
+      setSubmitHomeworkMsg("Thiếu visitor_token — đăng nhập lại.");
+      return;
+    }
+    if (!owner) {
+      setSubmitHomeworkMsg("Chưa suy ra được owner_token từ NEXT_PUBLIC_TRANGDEN_BAI_TAP_LOGIN_URL.");
+      return;
+    }
+    setSubmitHomeworkBusy(true);
+    try {
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(root, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        logging: false,
+        backgroundColor: "#0b0f14",
+      });
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((b) => resolve(b), "image/png");
+      });
+      if (!blob) {
+        setSubmitHomeworkMsg("Không tạo được ảnh PNG.");
+        return;
+      }
+      const fd = new FormData();
+      fd.append("screenshot", blob, "screenshot.png");
+      fd.append("owner_token", owner);
+      fd.append("visitor_token", vt);
+      const r = await fetch(getTrangDenCau8SubmitUrl(), { method: "POST", body: fd });
+      const data = (await r.json().catch(() => ({}))) as {
+        success?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (r.ok && data.success !== false) {
+        setSubmitHomeworkMsg(
+          typeof data.message === "string" && data.message.trim()
+            ? data.message.trim()
+            : "Đã gửi bài."
+        );
+      } else {
+        const err =
+          typeof data.error === "string" && data.error.trim()
+            ? data.error.trim()
+            : `Trang Đen trả lỗi (${r.status}).`;
+        setSubmitHomeworkMsg(err);
+      }
+    } catch (e) {
+      setSubmitHomeworkMsg(
+        e instanceof Error ? e.message : "Lỗi khi chụp hoặc gửi (CORS ảnh đại diện có thể chặn canvas)."
+      );
+    } finally {
+      setSubmitHomeworkBusy(false);
+    }
+  }
+
   const guestBlock = agsRole === "guest";
   const memberRemaining = agsRole === "member" ? Math.max(0, 5 - memberSent) : null;
   const memberAtLimit = agsRole === "member" && memberSent >= 5;
+  const homeworkLayout = !!(loggedIn && agsRole && agsRole !== "admin");
+  const roleLabel = agsRole === "guest" ? "Guest" : agsRole === "member" ? "Member" : "";
+  const avatarInitial = (displayName || "?").trim().slice(0, 1).toUpperCase() || "?";
 
   if (hydrating) {
     return (
@@ -273,8 +385,52 @@ export default function Page() {
     );
   }
 
+  const chatPanel = (
+    <div className="panel chat-panel">
+      <div className="messages">
+        {messages.length === 0 ? (
+          <div className="bubble bot">
+            {!loggedIn
+              ? "Đăng nhập để bắt đầu chat."
+              : guestBlock
+                ? "Bạn chỉ có thể xem, không gửi tin nhắn."
+                : "Xin chào! Hỏi bất cứ điều gì về AI hay AI Agent — gửi tin nhắn bên dưới."}
+          </div>
+        ) : null}
+        {messages.map((m, i) => (
+          <div key={i} className={`bubble ${m.role === "user" ? "user" : "bot"}`}>
+            {m.text}
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+      <form onSubmit={handleSend}>
+        <label htmlFor="msg">Câu hỏi</label>
+        <textarea
+          id="msg"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={
+            !loggedIn
+              ? "Đăng nhập trước khi gửi."
+              : guestBlock
+                ? "Không thể gửi tin nhắn."
+                : "Ví dụ: AI Agent khác gì với chatbot thường?"
+          }
+          disabled={busy || !loggedIn || guestBlock || memberAtLimit}
+        />
+        <button
+          type="submit"
+          disabled={busy || !loggedIn || !input.trim() || guestBlock || memberAtLimit}
+        >
+          {busy ? "Đang trả lời…" : "Gửi"}
+        </button>
+      </form>
+    </div>
+  );
+
   return (
-    <main>
+    <main className={homeworkLayout ? "layout-homework" : undefined}>
       <header className="app-header">
         <div className="app-header-left">
           <h1>Chat AI / AI Agent</h1>
@@ -311,59 +467,63 @@ export default function Page() {
         </form>
       ) : null}
 
-      {loggedIn && memberRemaining !== null ? (
-        <p className="sub" style={{ marginBottom: "0.65rem" }}>
-          Còn {memberRemaining}/5 tin nhắn
-        </p>
-      ) : null}
-
-      {loggedIn && guestBlock ? (
-        <p className="err" style={{ marginBottom: "0.65rem" }}>
-          Bạn không có quyền gửi tin nhắn
-        </p>
-      ) : null}
-
-      <div className="panel chat-panel">
-        <div className="messages">
-          {messages.length === 0 ? (
-            <div className="bubble bot">
-              {!loggedIn
-                ? "Đăng nhập để bắt đầu chat."
-                : guestBlock
-                  ? "Bạn chỉ có thể xem, không gửi tin nhắn."
-                  : "Xin chào! Hỏi bất cứ điều gì về AI hay AI Agent — gửi tin nhắn bên dưới."}
+      {homeworkLayout ? (
+        <div ref={captureRootRef} className="homework-capture-root">
+          <div className="homework-split">
+            <aside className="homework-sidebar" aria-label="Hồ sơ và nộp bài">
+              <div className="homework-avatar-wrap">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" width={300} height={300} crossOrigin="anonymous" />
+                ) : (
+                  <div className="homework-avatar-fallback" aria-hidden>
+                    {avatarInitial}
+                  </div>
+                )}
+              </div>
+              <p className="homework-name">{displayName || "—"}</p>
+              <p className="homework-role">{roleLabel}</p>
+              <button
+                type="button"
+                className="btn-submit-friend"
+                onClick={() => void handleSubmitHomeworkForFriend()}
+                disabled={submitHomeworkBusy || busy}
+              >
+                {submitHomeworkBusy ? "Đang gửi…" : "「Nộp bài hộ bạn」"}
+              </button>
+              {submitHomeworkMsg ? (
+                <p className="sub homework-submit-msg">{submitHomeworkMsg}</p>
+              ) : null}
+            </aside>
+            <div className="homework-main-col">
+              {memberRemaining !== null ? (
+                <p className="sub" style={{ marginBottom: "0.65rem" }}>
+                  Còn {memberRemaining}/5 tin nhắn
+                </p>
+              ) : null}
+              {guestBlock ? (
+                <p className="err" style={{ marginBottom: "0.65rem" }}>
+                  Bạn không có quyền gửi tin nhắn
+                </p>
+              ) : null}
+              {chatPanel}
             </div>
-          ) : null}
-          {messages.map((m, i) => (
-            <div key={i} className={`bubble ${m.role === "user" ? "user" : "bot"}`}>
-              {m.text}
-            </div>
-          ))}
-          <div ref={bottomRef} />
+          </div>
         </div>
-        <form onSubmit={handleSend}>
-          <label htmlFor="msg">Câu hỏi</label>
-          <textarea
-            id="msg"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              !loggedIn
-                ? "Đăng nhập trước khi gửi."
-                : guestBlock
-                  ? "Không thể gửi tin nhắn."
-                  : "Ví dụ: AI Agent khác gì với chatbot thường?"
-            }
-            disabled={busy || !loggedIn || guestBlock || memberAtLimit}
-          />
-          <button
-            type="submit"
-            disabled={busy || !loggedIn || !input.trim() || guestBlock || memberAtLimit}
-          >
-            {busy ? "Đang trả lời…" : "Gửi"}
-          </button>
-        </form>
-      </div>
+      ) : (
+        <>
+          {loggedIn && memberRemaining !== null ? (
+            <p className="sub" style={{ marginBottom: "0.65rem" }}>
+              Còn {memberRemaining}/5 tin nhắn
+            </p>
+          ) : null}
+          {loggedIn && guestBlock ? (
+            <p className="err" style={{ marginBottom: "0.65rem" }}>
+              Bạn không có quyền gửi tin nhắn
+            </p>
+          ) : null}
+          {chatPanel}
+        </>
+      )}
     </main>
   );
 }
