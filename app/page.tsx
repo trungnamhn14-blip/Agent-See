@@ -22,6 +22,21 @@ const SS_AVATAR_URL = "agentsee_avatar_url";
 
 const VALID_AGS: readonly AgsRole[] = ["admin", "member", "guest"];
 
+/** Ảnh nộp: 800×1002; chỉ vẽ lại ô avatar 300×300 đúng vị trí cột trái (không gồm chat — tránh 2 mặt trong một ảnh). */
+const HOMEWORK_OUT_W = 800;
+const HOMEWORK_OUT_H = 1002;
+const AVATAR_BOX = 300;
+const SIDEBAR_W = 400;
+const SIDEBAR_PAD = 12;
+const SIDEBAR_BORDER = 1;
+
+function homeworkAvatarPasteXY(): { x: number; y: number } {
+  const inner = SIDEBAR_W - 2 * SIDEBAR_BORDER - 2 * SIDEBAR_PAD;
+  const x = SIDEBAR_BORDER + SIDEBAR_PAD + (inner - AVATAR_BOX) / 2;
+  const y = SIDEBAR_BORDER + SIDEBAR_PAD;
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
 function tabLoginMarked(): boolean {
   try {
     return sessionStorage.getItem(SS_TAB_LOGIN) === "1";
@@ -114,7 +129,7 @@ export default function Page() {
   const [submitHomeworkBusy, setSubmitHomeworkBusy] = useState(false);
   const [submitHomeworkMsg, setSubmitHomeworkMsg] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const captureRootRef = useRef<HTMLDivElement>(null);
+  const avatarCaptureRef = useRef<HTMLDivElement>(null);
 
   const scrollDown = useCallback(() => {
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
@@ -374,11 +389,11 @@ export default function Page() {
 
   async function handleSubmitHomeworkForFriend() {
     setSubmitHomeworkMsg(null);
-    const root = captureRootRef.current;
+    const avatarEl = avatarCaptureRef.current;
     const vt = visitorToken?.trim();
     const owner = getTrangDenOwnerTokenFromLoginUrl();
-    if (!root) {
-      setSubmitHomeworkMsg("Không tìm thấy vùng chụp.");
+    if (!avatarEl) {
+      setSubmitHomeworkMsg("Không tìm thấy khung avatar.");
       return;
     }
     if (!vt) {
@@ -393,17 +408,13 @@ export default function Page() {
       setSubmitHomeworkMsg("Chưa tải xong ảnh mẫu 300×300 từ Trang Đen (cau-8/status) — không nộp được.");
       return;
     }
-    /** Trang Đen chấm OpenCV trên ảnh đúng 800×1002; avatar trong khung 300×300. */
-    const CAPTURE_W = 800;
-    const CAPTURE_H = 1002;
-
     setSubmitHomeworkBusy(true);
     try {
       const { default: html2canvas } = await import("html2canvas");
-      const canvas = await html2canvas(root, {
+      const patch = await html2canvas(avatarEl, {
         scale: 1,
-        width: CAPTURE_W,
-        height: CAPTURE_H,
+        width: AVATAR_BOX,
+        height: AVATAR_BOX,
         useCORS: true,
         allowTaint: false,
         logging: false,
@@ -411,19 +422,22 @@ export default function Page() {
         scrollX: 0,
         scrollY: 0,
       });
-      let out = canvas;
-      if (canvas.width !== CAPTURE_W || canvas.height !== CAPTURE_H) {
-        const c2 = document.createElement("canvas");
-        c2.width = CAPTURE_W;
-        c2.height = CAPTURE_H;
-        const ctx = c2.getContext("2d");
-        if (ctx) {
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = "high";
-          ctx.drawImage(canvas, 0, 0, CAPTURE_W, CAPTURE_H);
-          out = c2;
-        }
+      const out = document.createElement("canvas");
+      out.width = HOMEWORK_OUT_W;
+      out.height = HOMEWORK_OUT_H;
+      const ctx = out.getContext("2d");
+      if (!ctx) {
+        setSubmitHomeworkMsg("Không tạo được canvas.");
+        return;
       }
+      ctx.fillStyle = "#0b0f14";
+      ctx.fillRect(0, 0, HOMEWORK_OUT_W, HOMEWORK_OUT_H);
+      ctx.fillStyle = "#121822";
+      ctx.fillRect(0, 0, SIDEBAR_W, HOMEWORK_OUT_H);
+      const { x: ax, y: ay } = homeworkAvatarPasteXY();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(patch, 0, 0, patch.width, patch.height, ax, ay, AVATAR_BOX, AVATAR_BOX);
       const blob = await new Promise<Blob | null>((resolve) => {
         out.toBlob((b) => resolve(b), "image/png");
       });
@@ -571,15 +585,15 @@ export default function Page() {
           ) : null}
           {compareLoadState === "ok" ? (
             <p className="sub homework-avatar-hint">
-              Khung trái hiển thị đúng file <code>*_compare_300.jpg</code> mà server dùng so OpenCV (cùng trên web lớp
-              học).
+              Khung trái là file <code>*_compare_300.jpg</code> từ Trang Đen. Khi nộp, app chỉ chụp đúng ô avatar
+              300×300 rồi ghép vào ảnh 800×1002 (không có chat) để OpenCV không nhầm với ảnh/hội thoại bên phải.
             </p>
           ) : null}
           <div className="homework-capture-viewport">
-            <div ref={captureRootRef} className="homework-capture-root">
+            <div className="homework-capture-root">
               <div className="homework-split">
                 <aside className="homework-sidebar" aria-label="Hồ sơ và nộp bài">
-                  <div className="homework-avatar-wrap">
+                  <div ref={avatarCaptureRef} className="homework-avatar-wrap">
                     {lopCompareSrc ? (
                       <img
                         src={lopCompareSrc}
